@@ -3,6 +3,10 @@ name: Build ShonenX
 on:
   workflow_dispatch:
     inputs:
+      release_tag:
+        description: 'Release Tag (Leave empty to auto-extract from pubspec.yaml)'
+        required: false
+        type: string
       build_android:
         type: boolean
         default: true
@@ -13,6 +17,10 @@ on:
         type: boolean
         default: true
 
+# REQUIRED: Gives GitHub Actions permission to create a Release
+permissions:
+  contents: write
+
 jobs:
   start_building:
     runs-on: ubuntu-latest
@@ -20,18 +28,28 @@ jobs:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
     steps:
-      # ── 0. Notify Telegram: Build Started ────────────────────────────────────
       - name: Notify Telegram — Build Started
         run: |
+          MSG=$(cat <<EOF
+          <b>Build Initiated: ShonenX</b>
+          
+          <b>Branch:</b> <code>${{ github.ref_name }}</code>
+          <b>Triggered by:</b> <code>${{ github.actor }}</code>
+          <b>Repository:</b> <a href="https://github.com/${{ github.repository }}">View Repository</a>
+          
+          <a href="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}">View Action Logs</a>
+          EOF
+          )
+          
           curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -F chat_id="${TELEGRAM_CHAT_ID}" \
-            -F parse_mode="Markdown" \
-            -F text="🔨 *Build Started — ShonenX*"
+            -F parse_mode="HTML" \
+            -F disable_web_page_preview="true" \
+            --form-string text="$MSG"
 
   build-android:
     if: github.event.inputs.build_android == 'true'
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
         with:
@@ -73,8 +91,8 @@ jobs:
           }
           EOF
 
-      - name: Get Dependencies
-        run: find . -name "pubspec.lock" -type f -delete && flutter pub upgrade
+      - name: Get Dependencies (Safe)
+        run: flutter pub get
 
       - name: Build APKs
         run: flutter build apk --release --split-per-abi --dart-define-from-file=keys.json
@@ -88,7 +106,6 @@ jobs:
   build-linux:
     if: github.event.inputs.build_linux == 'true'
     runs-on: ubuntu-latest
-
     steps:
       - name: Install dependencies
         run: |
@@ -121,12 +138,12 @@ jobs:
       - name: Enable Linux config
         run: flutter config --enable-linux-desktop
 
-      - name: Get Dependencies
-        run: find . -name "pubspec.lock" -type f -delete && flutter pub upgrade
+      - name: Get Dependencies (Safe)
+        run: flutter pub get
 
       - name: Build Linux app
         run: flutter build linux --release --dart-define-from-file=keys.json
-      
+        
       - name: Upload Linux Artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -136,7 +153,6 @@ jobs:
   build-windows:
     if: github.event.inputs.build_windows == 'true'
     runs-on: windows-2022
-
     steps:
       - uses: actions/checkout@v4
         with:
@@ -164,8 +180,8 @@ jobs:
           }
           EOF
 
-      - name: Get Dependencies
-        run: flutter pub upgrade
+      - name: Get Dependencies (Safe)
+        run: flutter pub get
 
       - name: Build Windows app
         run: flutter build windows --release --dart-define-from-file=keys.json
@@ -179,7 +195,7 @@ jobs:
           name: windows-installer
           path: build/windows/x64/installer/Release
 
-  upload:
+  release_and_upload:
     if: always()
     needs: [start_building, build-android, build-linux, build-windows]
     runs-on: ubuntu-latest
@@ -187,56 +203,9 @@ jobs:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
     steps:
-      # Successful and Failure Notification to Telegram
-      - name: Send Android Successful Build Notification to Telegram
-        if: ${{ needs.build-android.result == 'success' }}
-        run: |
-          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            -F chat_id="${TELEGRAM_CHAT_ID}" \
-            -F parse_mode="Markdown" \
-            -F text="✅ *Android Build Successful — ShonenX*"
+      - uses: actions/checkout@v4 
 
-      - name: Send Android Build Failure Notification to Telegram
-        if: ${{ needs.build-android.result == 'failure' }}
-        run: |
-          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            -F chat_id="${TELEGRAM_CHAT_ID}" \
-            -F parse_mode="Markdown" \
-            -F text="❌ *Android Build Failed — ShonenX*"
-
-      - name: Send Linux Successful Build Notification to Telegram
-        if: ${{ needs.build-linux.result == 'success' }}
-        run: |
-          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            -F chat_id="${TELEGRAM_CHAT_ID}" \
-            -F parse_mode="Markdown" \
-            -F text="✅ *Linux Build Successful — ShonenX*"
-
-      - name: Send Linux Build Failure Notification to Telegram
-        if: ${{ needs.build-linux.result == 'failure' }}
-        run: |
-          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            -F chat_id="${TELEGRAM_CHAT_ID}" \
-            -F parse_mode="Markdown" \
-            -F text="❌ *Linux Build Failed — ShonenX*"
-
-      - name: Send Windows Successful Build Notification to Telegram
-        if: ${{ needs.build-windows.result == 'success' }}
-        run: |
-          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            -F chat_id="${TELEGRAM_CHAT_ID}" \
-            -F parse_mode="Markdown" \
-            -F text="✅ *Windows Build Successful — ShonenX*"
-
-      - name: Send Windows Build Failure Notification to Telegram
-        if: ${{ needs.build-windows.result == 'failure' }}
-        run: |
-          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            -F chat_id="${TELEGRAM_CHAT_ID}" \
-            -F parse_mode="Markdown" \
-            -F text="❌ *Windows Build Failed — ShonenX*"            
-
-      # ── Download Android artifacts ──────────────────────────────────────────────
+      # ── Download Active Artifacts ────────────────────────────────────────────────
       - name: Download Android artifacts
         if: ${{ needs.build-android.result == 'success' }}
         uses: actions/download-artifact@v4
@@ -244,7 +213,6 @@ jobs:
           name: android-apks
           path: artifacts/android
 
-      # ── Download Linux artifacts ────────────────────────────────────────────────
       - name: Download Linux artifacts
         if: ${{ needs.build-linux.result == 'success' }}
         uses: actions/download-artifact@v4
@@ -252,7 +220,6 @@ jobs:
           name: linux-bundle
           path: artifacts/linux
 
-      # ── Download Windows artifacts ──────────────────────────────────────────────
       - name: Download Windows artifacts
         if: ${{ needs.build-windows.result == 'success' }}
         uses: actions/download-artifact@v4
@@ -267,24 +234,74 @@ jobs:
           cd artifacts
           zip -r ShonenX-linux.zip linux
 
-      # ── Send files to Telegram ──────────────────────────────────────────────────
-      - name: Send files to Telegram
-        if: ${{ needs.build-android.result == 'success' || needs.build-linux.result == 'success' || needs.build-windows.result == 'success'}}
+      # ── Determine Tag ───────────────────────────────────────────────────────────
+      - name: Determine Release Tag
+        id: determine_tag
         run: |
-          # Send notification first
+          if [ -n "${{ github.event.inputs.release_tag }}" ]; then
+            TAG="${{ github.event.inputs.release_tag }}"
+          else
+            VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}' | cut -d'+' -f1)
+            TAG="v$VERSION"
+          fi
+          echo "TAG=$TAG" >> $GITHUB_ENV
+
+      # ── Create or Update GitHub Release ─────────────────────────────────────────
+      - name: Create or Update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG }}
+          name: Release ${{ env.TAG }}
+          files: |
+            artifacts/**/*.apk
+            artifacts/**/*.exe
+            artifacts/**/*.msi
+            artifacts/**/*.zip
+            artifacts/ShonenX-linux.zip
+
+      # ── Notify Telegram with Clean Asset Links ──────────────────────────────────
+      - name: Send Release Links to Telegram
+        run: |
+          REPO_URL="https://github.com/${{ github.repository }}"
+          RELEASE_URL="${REPO_URL}/releases/download/${{ env.TAG }}"
+          
+          # Base message template
+          MSG=$(cat <<EOF
+          <b>ShonenX Release Compiled: ${{ env.TAG }}</b>
+          
+          The build pipeline has completed successfully.
+          
+          <b>Repository:</b> <a href="${REPO_URL}">View Repository</a>
+          <b>Release Notes:</b> <a href="${REPO_URL}/releases/tag/${{ env.TAG }}">View Release Page</a>
+          
+          <b>Direct Asset Downloads:</b>
+          EOF
+          )
+          
+          # Programmatically look for generated assets and add formatted HTML links
+          if [ "${{ needs.build-android.result }}" = "success" ]; then
+            cd artifacts/android
+            for f in *.apk; do
+              [ -e "$f" ] && MSG="${MSG}"$'\n• <a href="'"${RELEASE_URL}/${f}"'">'${f}'</a>'
+            done
+            cd ../..
+          fi
+          
+          if [ "${{ needs.build-windows.result }}" = "success" ]; then
+            cd artifacts/windows
+            for f in *.exe *.msi; do
+              [ -e "$f" ] && MSG="${MSG}"$'\n• <a href="'"${RELEASE_URL}/${f}"'">'${f}'</a>'
+            done
+            cd ../..
+          fi
+          
+          if [ "${{ needs.build-linux.result }}" = "success" ]; then
+            MSG="${MSG}"$'\n• <a href="'"${RELEASE_URL}/ShonenX-linux.zip"'">ShonenX-linux.zip</a>'
+          fi
+          
+          # Ship message to Telegram
           curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -F chat_id="${TELEGRAM_CHAT_ID}" \
-            -F parse_mode="Markdown" \
-            -F text="✅ *Uploading Successful Build Files — ShonenX*"
-
-          # Upload files
-          find artifacts \
-            \( -name "*.apk" -o -name "*.zip" -o -name "*.exe" -o -name "*.msi" \) \
-            -type f | while read -r FILE; do
-
-            echo "Uploading $FILE"
-
-            curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
-              -F chat_id="${TELEGRAM_CHAT_ID}" \
-              -F "document=@${FILE}"
-          done
+            -F parse_mode="HTML" \
+            -F disable_web_page_preview="true" \
+            --form-string text="$MSG"
