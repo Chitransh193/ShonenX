@@ -1,7 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:shonenx/core/network/http_client.dart';
-import 'package:shonenx/core/providers/storage_provider.dart';
+import 'package:shonenx/shared/providers/storage_provider.dart';
 import 'package:shonenx/core/remote_config/providers/remote_config_provider.dart';
 import 'package:shonenx/source_engine/inbuilt_sources/anime/anidb_source.dart';
 import 'package:shonenx/source_engine/inbuilt_sources/anime/gojo_source.dart';
