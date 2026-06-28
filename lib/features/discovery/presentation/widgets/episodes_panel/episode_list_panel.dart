@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shonenx/core/providers/ui_prefs_provider.dart';
+import 'package:shonenx/shared/providers/ui_prefs_provider.dart';
 import 'package:shonenx/core/utils/responsive.dart';
 import 'package:shonenx/features/discovery/presentation/widgets/episodes_panel/episode_tiles.dart';
 import 'package:shonenx/features/discovery/providers/episodes_provider.dart';
@@ -212,7 +212,7 @@ class _EpisodeListPanelState extends ConsumerState<EpisodeListPanel> {
             StaggeredFadeIn(
               index: 2,
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(10, 0, 4, 5),
+                padding: const EdgeInsets.fromLTRB(10, 5, 4, 5),
                 child: Row(
                   children: [
                     Text(
