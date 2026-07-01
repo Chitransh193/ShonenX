@@ -16,6 +16,7 @@ import 'package:shonenx/source_engine/models/source_info.dart';
 import 'package:shonenx/source_engine/source_engine_provider.dart';
 import 'package:shonenx/source_engine/source_registry.dart';
 import 'package:shonenx/features/discovery/providers/discovery_feed_provider.dart';
+import 'package:shonenx/features/discovery/providers/metadata_tags_provider.dart';
 import 'package:shonenx/features/discovery/presentation/widgets/sheets/advanced_search_sheet.dart';
 
 class DiscoverScreen extends StatelessWidget {
@@ -133,6 +134,18 @@ class _SearchDiscoverScreenState extends ConsumerState<SearchDiscoverScreen>
   }
 
   void _openAdvancedSearch(BuildContext context) {
+    final currentType = _tabController.index == 0
+        ? MediaType.ANIME
+        : MediaType.MANGA;
+    final filtersState = ref.read(
+      discoveryFiltersProvider((type: currentType, sourceId: widget.source)),
+    );
+    final hasFilters =
+        filtersState.value != null &&
+        (filtersState.value!.genres.isNotEmpty ||
+            filtersState.value!.tags.isNotEmpty);
+    if (!hasFilters) return;
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -145,6 +158,7 @@ class _SearchDiscoverScreenState extends ConsumerState<SearchDiscoverScreen>
           type: _tabController.index == 0 ? MediaType.ANIME : MediaType.MANGA,
           initialGenres: _genres,
           initialTags: _tags,
+          sourceId: widget.source,
           onApply: (query, genres, tags) {
             setState(() {
               _query = query.trim();
@@ -162,10 +176,45 @@ class _SearchDiscoverScreenState extends ConsumerState<SearchDiscoverScreen>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final currentType = _tabController.index == 0
+        ? MediaType.ANIME
+        : MediaType.MANGA;
+    final filtersState = ref.watch(
+      discoveryFiltersProvider((type: currentType, sourceId: widget.source)),
+    );
+    final hasFilters =
+        filtersState.value != null &&
+        (filtersState.value!.genres.isNotEmpty ||
+            filtersState.value!.tags.isNotEmpty);
+
+    String pageTitle = 'Discover';
+    String pageSubtitle = 'Find your next anime or manga';
+
+    if (widget.source != null && widget.source!.isNotEmpty) {
+      final allAnimeSources =
+          ref.watch(availableAnimeSourcesProvider).value ?? [];
+      final allMangaSources =
+          ref.watch(availableMangaSourcesProvider).value ?? [];
+      final allSources = [...allAnimeSources, ...allMangaSources];
+      final sourceObj = allSources
+          .where((s) => s.id == widget.source)
+          .firstOrNull;
+      final sourceName =
+          sourceObj?.name ??
+          (widget.source![0].toUpperCase() + widget.source!.substring(1));
+      pageTitle = sourceName;
+      pageSubtitle = 'Browsing ${currentType.name.toLowerCase()} catalog';
+    } else if (_genres.isNotEmpty) {
+      pageTitle = _genres.join(', ');
+      pageSubtitle = 'Browsing ${currentType.name.toLowerCase()} by genre';
+    } else if (_tags.isNotEmpty) {
+      pageTitle = _tags.join(', ');
+      pageSubtitle = 'Browsing ${currentType.name.toLowerCase()} by tag';
+    }
 
     return AppScaffold(
-      title: 'Discover',
-      subtitle: 'Find your next anime or manga',
+      title: pageTitle,
+      subtitle: pageSubtitle,
       body: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 10),
         child: Column(
@@ -193,11 +242,12 @@ class _SearchDiscoverScreenState extends ConsumerState<SearchDiscoverScreen>
                             setState(() => _query = '');
                           },
                         ),
-                      IconButton(
-                        icon: const Icon(Icons.tune, size: 20),
-                        tooltip: 'Advanced Filters',
-                        onPressed: () => _openAdvancedSearch(context),
-                      ),
+                      if (hasFilters)
+                        IconButton(
+                          icon: const Icon(Icons.tune, size: 20),
+                          tooltip: 'Advanced Filters',
+                          onPressed: () => _openAdvancedSearch(context),
+                        ),
                     ],
                   ),
                   filled: true,
@@ -553,7 +603,7 @@ class _PaginatedMediaGrid extends ConsumerWidget {
           children: [
             GridView.builder(
               controller: scrollController,
-              padding: const EdgeInsets.only(bottom: 120, top: 10),
+              padding: const EdgeInsets.only(bottom: 200, top: 10),
               gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
                 maxCrossAxisExtent: style.layout.width + 10,
                 mainAxisExtent: style.layout.height,
@@ -610,11 +660,11 @@ class _DynamicGenreFeed extends ConsumerWidget {
         }
 
         return ListView.builder(
-          padding: const EdgeInsets.only(top: 10, bottom: 120),
+          padding: const EdgeInsets.only(top: 10, bottom: 200),
           itemCount: genres.length,
           itemBuilder: (context, index) {
             return Padding(
-              padding: const EdgeInsets.only(bottom: 10),
+              padding: const EdgeInsets.only(bottom: 5),
               child: _GenreFeedRow(type: type, genre: genres[index]),
             );
           },
