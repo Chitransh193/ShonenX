@@ -92,8 +92,8 @@ jobs:
           }
           EOF
 
-      - name: Get Dependencies (Safe)
-        run: flutter pub get
+      - name: Get Dependencies
+        run: flutter pub upgrade
 
       - name: Build APKs
         run: flutter build apk --release --split-per-abi --dart-define-from-file=keys.json
@@ -140,8 +140,8 @@ jobs:
       - name: Enable Linux config
         run: flutter config --enable-linux-desktop
 
-      - name: Get Dependencies (Safe)
-        run: flutter pub get
+      - name: Get Dependencies
+        run: flutter pub upgrade 
 
       - name: Build Linux app
         run: flutter build linux --release --dart-define-from-file=keys.json
@@ -183,8 +183,8 @@ jobs:
           }
           EOF
 
-      - name: Get Dependencies (Safe)
-        run: flutter pub get
+      - name: Get Dependencies
+        run: flutter pub upgrade
 
       - name: Build Windows app
         run: flutter build windows --release --dart-define-from-file=keys.json
