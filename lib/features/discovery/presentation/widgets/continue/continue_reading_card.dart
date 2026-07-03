@@ -47,7 +47,15 @@ class _ContinueReadingItemState extends ConsumerState<ContinueReadingItem>
         final result = await ref
             .read(continueReadingResolverProvider)
             .resolve(widget.entry);
-        if (mounted) context.push('/reader', extra: result.mode);
+        if (!mounted) return;
+        context.push(
+          '/details/${result.mode.media.type.id}',
+          extra: {
+            'media': result.mode.media,
+            'initialTabIndex': 1,
+            'autoPlayMode': result.mode,
+          },
+        );
       },
       mediaType: MediaType.MANGA,
       mediaTitle: widget.entry.mangaTitle,
@@ -60,6 +68,18 @@ class _ContinueReadingItemState extends ConsumerState<ContinueReadingItem>
       position: position,
       mediaType: MediaType.MANGA,
       mediaTitle: widget.entry.mangaTitle,
+      onViewDetails: () {
+        context.push(
+          '/details/manga',
+          extra: UnifiedMedia(
+            id: widget.entry.mangaId,
+            title: MediaTitle(english: widget.entry.mangaTitle),
+            type: MediaType.MANGA,
+            cover: widget.entry.cover,
+            banner: widget.entry.banner,
+          ),
+        );
+      },
       onRemoveHistory: () =>
           ref.read(readHistoryRepositoryProvider).deleteEntry(widget.entry.id),
     );

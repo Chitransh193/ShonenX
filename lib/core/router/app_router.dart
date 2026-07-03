@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shonenx/app_init.dart';
 import 'package:shonenx/core/router/complex_extra_codec.dart';
 import 'package:shonenx/core/router/scaffold_with_nav_bar.dart';
 import 'package:shonenx/features/discovery/presentation/details_screen.dart';
@@ -35,10 +36,12 @@ import "package:shonenx/features/notifications/presentation/notifications_settin
 import 'package:shonenx/features/settings/presentation/content_settings_screen.dart';
 import 'package:shonenx/features/settings/presentation/logs_screen.dart';
 import 'package:shonenx/features/settings/presentation/about_screen.dart';
+import 'package:shonenx/features/settings/presentation/update_settings_screen.dart';
 import 'package:shonenx/features/settings/presentation/troubleshoot_settings_screen.dart';
 import 'package:shonenx/core/services/backup_service.dart';
 import 'package:shonenx/shared/models/unified_media.dart';
 import 'package:shonenx/core/network/cf_client.dart';
+
 
 final rootNavigatorKey = GlobalKey<NavigatorState>();
 final _homeNavigatorKey = GlobalKey<NavigatorState>(debugLabel: 'home');
@@ -56,6 +59,27 @@ final routerProvider = Provider<GoRouter>((ref) {
     errorBuilder: (context, state) => Scaffold(
       body: Center(child: Text('Route not found: ${state.uri.toString()}')),
     ),
+    redirect: (context, state) {
+      final uri = state.uri;
+      if (((uri.scheme == 'aniyomi' ||
+                  uri.scheme == 'tachiyomi' ||
+                  uri.scheme == 'mangayomi') &&
+              uri.host == 'add-repo') ||
+          uri.path.contains('add-repo')) {
+        final url = uri.queryParameters['url'];
+        final isAnime = uri.scheme == 'aniyomi';
+        final target = (url != null)
+            ? '/settings/extensions?autoAddUrl=${Uri.encodeComponent(url)}&autoAddType=${isAnime ? "anime" : "manga"}'
+            : '/settings/extensions';
+
+        if (!AppInit.isBridgeInitialized) {
+          AppInit.pendingDeepLink = target;
+          return '/splash';
+        }
+        return target;
+      }
+      return null;
+    },
     routes: [
       GoRoute(
         path: '/splash',
@@ -124,12 +148,26 @@ final routerProvider = Provider<GoRouter>((ref) {
             (e) => e.id == state.pathParameters['mediaType'],
           );
           final tag = state.uri.queryParameters['tag'];
-          final media = state.extra as UnifiedMedia;
+
+          UnifiedMedia media;
+          int initialTabIndex = 0;
+          Object? autoPlayMode;
+
+          if (state.extra is Map) {
+            final map = state.extra as Map;
+            media = map['media'] as UnifiedMedia;
+            initialTabIndex = (map['initialTabIndex'] as int?) ?? 0;
+            autoPlayMode = map['autoPlayMode'];
+          } else {
+            media = state.extra as UnifiedMedia;
+          }
 
           return DetailsScreen(
             media: media,
             mediaType: mediaType,
             tag: tag ?? 'details',
+            initialTabIndex: initialTabIndex,
+            autoPlayMode: autoPlayMode,
           );
         },
       ),
@@ -250,6 +288,10 @@ final routerProvider = Provider<GoRouter>((ref) {
             builder: (context, state) => const LogsScreen(),
           ),
           GoRoute(
+            path: 'updates',
+            builder: (context, state) => const UpdateSettingsScreen(),
+          ),
+          GoRoute(
             path: 'about',
             builder: (context, state) => const AboutScreen(),
           ),
@@ -285,7 +327,10 @@ final routerProvider = Provider<GoRouter>((ref) {
                 orElse: () => MediaType.ANIME,
               );
               final mediaId = state.pathParameters['mediaId']!;
-              return ContinueHistoryItemsScreen(type: mediaType, mediaId: mediaId);
+              return ContinueHistoryItemsScreen(
+                type: mediaType,
+                mediaId: mediaId,
+              );
             },
           ),
         ],

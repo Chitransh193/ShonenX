@@ -49,7 +49,7 @@ class AnimeSourceAdapter extends BaseSourceAdapter implements AnimeSource {
   Future<List<VideoServer>> getServers(String episodeId) async {
     final methodLog = log.child('getServers');
     methodLog.i('episodeId=$episodeId');
-    return [VideoServer(id: '1', name: 'Default')];
+    return [VideoServer(id: 'auto', name: 'Default')];
   }
 
   @override
@@ -84,5 +84,15 @@ class AnimeSourceAdapter extends BaseSourceAdapter implements AnimeSource {
       methodLog.e('getSources failed', e, st);
       return [];
     }
+  }
+
+  @override
+  Future<List<String>> getFilterGenres() async {
+    return [];
+  }
+
+  @override
+  Future<List<String>> getFilterTags() async {
+    return [];
   }
 }

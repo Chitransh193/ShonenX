@@ -2,8 +2,6 @@ import 'dart:io';
 
 import 'package:anymex_extension_runtime_bridge/Settings/KvStore.dart';
 import 'package:anymex_extension_runtime_bridge/anymex_extension_runtime_bridge.dart';
-// import 'package:dartotsu_extension_bridge/Mangayomi/Eval/dart/model/source_preference.dart';
-// import 'package:dartotsu_extension_bridge/dartotsu_extension_bridge.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:get/get.dart';
@@ -24,8 +22,12 @@ import 'package:shonenx/features/library/domain/models/library_entry.dart';
 import 'package:shonenx/features/notifications/domain/models/notification_subscription.dart';
 import 'package:shonenx/features/tracking/domain/isar_tracker_link.dart';
 import 'package:window_manager/window_manager.dart';
+import 'package:fvp/fvp.dart' as fvp;
 
 class AppInit {
+  static bool isBridgeInitialized = false;
+  static String? pendingDeepLink;
+
   late final ScopedLogger _log = AppLogger.scope(AppInit);
 
   late final CacheManager cacheManager;
@@ -41,8 +43,8 @@ class AppInit {
       log.s('Window manager initialized');
     }
 
-    MediaKit.ensureInitialized();
-    log.s('MediaKit initialized');
+    await _initVideoEngines();
+    log.s('Video engines initialized');
 
     await _initDatabase();
     log.s('Database initialized');
@@ -57,30 +59,35 @@ class AppInit {
 
   Future<void> _initWindowManager() async {
     final log = _log.child('_initWindowManager');
+
     try {
       await windowManager.ensureInitialized();
 
       bool isTilingWm = false;
+
       if (Platform.isLinux) {
         final env = Platform.environment;
         final desktop = env['XDG_CURRENT_DESKTOP']?.toLowerCase() ?? '';
         final session = env['DESKTOP_SESSION']?.toLowerCase() ?? '';
-        
-        if (desktop.contains('hyprland') || 
-            session.contains('hyprland') || 
+
+        isTilingWm =
+            desktop.contains('hyprland') ||
+            session.contains('hyprland') ||
             env.containsKey('HYPRLAND_INSTANCE_SIGNATURE') ||
             desktop.contains('niri') ||
-            session.contains('niri')) {
-          isTilingWm = true;
-        }
+            session.contains('niri');
       }
 
       final windowOptions = WindowOptions(
         center: true,
-        backgroundColor: Colors.transparent,
-        skipTaskbar: false,
-        titleBarStyle: isTilingWm ? TitleBarStyle.hidden : TitleBarStyle.normal,
-        windowButtonVisibility: !isTilingWm,
+
+        backgroundColor: Platform.isWindows
+            ? const Color(0xFF000000)
+            : Colors.transparent,
+
+        titleBarStyle: isTilingWm ? TitleBarStyle.hidden : null,
+
+        windowButtonVisibility: Platform.isLinux && !isTilingWm,
       );
 
       await windowManager.waitUntilReadyToShow(windowOptions, () async {
@@ -124,17 +131,22 @@ class AppInit {
       // Perform migration from MediaSourcePreference to MediaPreference
       final oldPrefsCount = await isar.mediaSourcePreferences.count();
       if (oldPrefsCount > 0) {
-        log.i('Migrating $oldPrefsCount MediaSourcePreferences to MediaPreferences...');
+        log.i(
+          'Migrating $oldPrefsCount MediaSourcePreferences to MediaPreferences...',
+        );
         final oldPrefs = await isar.mediaSourcePreferences.where().findAll();
-        
-        final newPrefs = oldPrefs.map((old) => MediaPreference()
-          ..mediaTitle = old.mediaTitle
-          ..preferredSourceId = old.preferredSourceId
-          ..preferredSourceName = old.preferredSourceName
-          ..preferredSourceType = old.preferredSourceType
-          ..manualOverrideId = old.manualOverrideId
-          ..manualOverrideTitle = old.manualOverrideTitle
-        ).toList();
+
+        final newPrefs = oldPrefs
+            .map(
+              (old) => MediaPreference()
+                ..mediaTitle = old.mediaTitle
+                ..preferredSourceId = old.preferredSourceId
+                ..preferredSourceName = old.preferredSourceName
+                ..preferredSourceType = old.preferredSourceType
+                ..manualOverrideId = old.manualOverrideId
+                ..manualOverrideTitle = old.manualOverrideTitle,
+            )
+            .toList();
 
         await isar.writeTxn(() async {
           await isar.mediaPreferences.putAll(newPrefs);
@@ -154,11 +166,6 @@ class AppInit {
     final log = AppLogger.scope('AppInit').child('setupBridge');
 
     try {
-      // await DartotsuExtensionBridge().init(instance, 'ShonenX');
-      // After initialization, register the bridged managers
-      // final extManager = Get.find<ExtensionManager>();
-      // await extManager.onRuntimeBridgeInitialization();
-
       await AnymeXExtensionBridge.init(
         getDirectory: AnymeXExtensionBridge.defaultGetDirectory(
           baseDirectory: await getDatabaseDirectory('ShonenX'),
@@ -167,10 +174,6 @@ class AppInit {
       );
 
       await AnymeXRuntimeBridge.checkAndInitialize();
-
-      if (!AnymeXRuntimeBridge.controller.isReady.value) {
-        await AnymeXRuntimeBridge.setupRuntime();
-      }
 
       final extManager = Get.find<ExtensionManager>();
 
@@ -186,6 +189,8 @@ class AppInit {
     } catch (e, st) {
       log.e('BRIDGE INIT FAILED', e, st);
       rethrow;
+    } finally {
+      isBridgeInitialized = true;
     }
   }
 
@@ -210,5 +215,15 @@ class AppInit {
       await Directory(dbDir).create(recursive: true);
       return Directory(dbDir);
     }
+  }
+
+  static Future<void> _initVideoEngines() async {
+    final log = AppLogger.scope('AppInit').child('initVideoEngines');
+
+    MediaKit.ensureInitialized();
+    log.i('MediaKit initialized');
+
+    fvp.registerWith();
+    log.i('FVP backend initialized');
   }
 }

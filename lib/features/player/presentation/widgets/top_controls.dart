@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shonenx/features/player/engine/video_engine.dart';
+import 'package:shonenx/features/player/presentation/widgets/keyboard_shortcuts_sheet.dart';
 import 'package:shonenx/features/player/providers/player_controller.dart';
 import 'package:shonenx/features/player/providers/video_engine_provider.dart';
 import 'package:shonenx/features/player/domain/player_mode.dart';
@@ -14,6 +15,7 @@ class TopControls extends ConsumerWidget {
   final PlayerState playerState;
   final PlayerController controller;
   final VoidCallback onBack;
+  final VoidCallback? onComments;
 
   const TopControls({
     super.key,
@@ -23,6 +25,7 @@ class TopControls extends ConsumerWidget {
     required this.playerState,
     required this.controller,
     required this.onBack,
+    this.onComments,
   });
 
   @override
@@ -61,7 +64,7 @@ class TopControls extends ConsumerWidget {
                 icon: Icons.arrow_back_ios_new_rounded,
                 onTap: onBack,
               ),
-              const SizedBox(width: 16),
+              const SizedBox(width: 6),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -78,7 +81,7 @@ class TopControls extends ConsumerWidget {
                         color: Colors.white,
                         fontSize: 16,
                         fontWeight: FontWeight.w700,
-                        letterSpacing: 0.5,
+                        letterSpacing: 1,
                         shadows: [
                           Shadow(
                             offset: Offset(0, 1),
@@ -93,7 +96,7 @@ class TopControls extends ConsumerWidget {
                     const SizedBox(height: 2),
                     Text(
                       playerState.activeEpisode?.title ??
-                          (mode is PlayerModeOffline ? 'Offline File' : 'N/A'),
+                          'Episode ${playerState.activeEpisode?.number ?? (mode is PlayerModeOffline ? 'Offline File' : 'N/A')}',
                       style: const TextStyle(
                         color: Colors.white70,
                         fontSize: 13,
@@ -112,7 +115,7 @@ class TopControls extends ConsumerWidget {
                   ],
                 ),
               ),
-              const SizedBox(width: 16),
+              const SizedBox(width: 6),
               if (mode is PlayerModeOnline &&
                   playerState.qualities.length > 1) ...[
                 _buildQualityButton(
@@ -130,7 +133,14 @@ class TopControls extends ConsumerWidget {
                     );
                   },
                 ),
-                const SizedBox(width: 16),
+                const SizedBox(width: 6),
+              ],
+              if (mode is PlayerModeOnline && onComments != null) ...[
+                _buildActionIcon(
+                  icon: Icons.chat_bubble_outline_rounded,
+                  onTap: onComments!,
+                ),
+                const SizedBox(width: 6),
               ],
               _buildActionIcon(
                 icon: switch (ref.watch(
@@ -158,9 +168,14 @@ class TopControls extends ConsumerWidget {
                   );
                 },
               ),
-              const SizedBox(width: 16),
+              const SizedBox(width: 6),
               _buildActionIcon(
-                icon: Icons.settings_outlined,
+                icon: Icons.keyboard_alt_outlined,
+                onTap: () => KeyboardShortcutsSheet.show(context),
+              ),
+              const SizedBox(width: 6),
+              _buildActionIcon(
+                icon: Icons.video_settings_outlined,
                 onTap: () {
                   if (engine.buildSettingsView(context) == null) return;
                   showModalBottomSheet(
@@ -187,16 +202,6 @@ class TopControls extends ConsumerWidget {
       borderRadius: BorderRadius.circular(20),
       child: Container(
         padding: const EdgeInsets.all(8.0),
-        decoration: const BoxDecoration(
-          shape: BoxShape.circle,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black26,
-              blurRadius: 8,
-              offset: Offset(0, 2),
-            ),
-          ],
-        ),
         child: Icon(icon, color: Colors.white, size: 24),
       ),
     );
@@ -227,7 +232,7 @@ class TopControls extends ConsumerWidget {
             const Icon(
               Icons.keyboard_arrow_down_rounded,
               color: Colors.white70,
-              size: 16,
+              size: 6,
             ),
           ],
         ),
