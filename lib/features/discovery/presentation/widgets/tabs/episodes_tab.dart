@@ -24,6 +24,7 @@ import 'package:shonenx/source_engine/source_engine_provider.dart';
 import 'package:shonenx/source_engine/models/source_setting.dart';
 import 'package:shonenx/features/settings/presentation/source_settings_sheet.dart';
 import 'package:shonenx/features/history/providers/watch_history_provider.dart';
+import 'package:shonenx/features/comments/presentation/widgets/comments_tab.dart';
 
 class EpisodesTabWidget extends ConsumerWidget {
   final UnifiedMedia media;
@@ -130,53 +131,100 @@ class EpisodesTabWidget extends ConsumerWidget {
                 );
               }
             },
-            episodeActionsBuilder:
-                (episodeActionsContext, episode, isCurrent, isWatched) {
-                  return [
-                    IconButton(
-                      visualDensity: VisualDensity.compact,
-                      onPressed: () {
-                        AppBottomSheet.show(
-                          context: episodeActionsContext,
-                          title:
-                              '${media.type == MediaType.MANGA ? 'Chapter' : 'Episode'} ${episode.number.toString().contains('.0') ? episode.number.toInt() : episode.number}',
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              ListTile(
-                                title: const Text('Download'),
-                                leading: const Icon(Icons.download),
-                                onTap: () {
-                                  episodeActionsContext.pop();
-                                  DownloadSheet.show(
-                                    context,
-                                    episode,
-                                    ref
-                                            .read(
-                                              mediaPreferenceProvider(
-                                                MatchArgs(
-                                                  mediaTitle: media
-                                                      .title
-                                                      .availableTitle,
-                                                  type: media.type,
-                                                ),
-                                              ),
-                                            )
-                                            .value
-                                            ?.sourceInfo ??
-                                        sources.first,
-                                    media,
-                                  );
-                                },
-                              ),
-                            ],
+            episodeActionsBuilder: (episodeActionsContext, episode, isCurrent, isWatched) {
+              final epNum = episode.number.toInt();
+              return [
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  tooltip: 'Discussion',
+                  onPressed: () {
+                    AppBottomSheet.show(
+                      context: episodeActionsContext,
+                      title:
+                          '${media.type == MediaType.MANGA ? 'Chapter' : 'Episode'} $epNum Discussion',
+                      contentPadding: EdgeInsets.zero,
+                      child: SizedBox(
+                        height:
+                            MediaQuery.of(episodeActionsContext).size.height *
+                            0.78,
+                        child: CommentsTabWidget(
+                          media: media,
+                          initialEpisodeNumber: epNum,
+                        ),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.chat_bubble_outline_rounded, size: 18),
+                ),
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () {
+                    AppBottomSheet.show(
+                      context: episodeActionsContext,
+                      title:
+                          '${media.type == MediaType.MANGA ? 'Chapter' : 'Episode'} ${episode.number.toString().contains('.0') ? episode.number.toInt() : episode.number}',
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          ListTile(
+                            title: const Text('Discussion'),
+                            leading: const Icon(Icons.forum_rounded),
+                            onTap: () {
+                              episodeActionsContext.pop();
+                              AppBottomSheet.show(
+                                context: episodeActionsContext,
+                                title:
+                                    '${media.type == MediaType.MANGA ? 'Chapter' : 'Episode'} $epNum Discussion',
+                                contentPadding: EdgeInsets.zero,
+                                child: SizedBox(
+                                  height:
+                                      MediaQuery.of(
+                                        episodeActionsContext,
+                                      ).size.height *
+                                      0.78,
+                                  child: CommentsTabWidget(
+                                    media: media,
+                                    initialEpisodeNumber: epNum,
+                                  ),
+                                ),
+                              );
+                            },
                           ),
-                        );
-                      },
-                      icon: const Icon(Icons.more_horiz),
-                    ),
-                  ];
-                },
+                          ListTile(
+                            title: const Text('Download'),
+                            leading: const Icon(Icons.download),
+                            onTap: () {
+                              episodeActionsContext.pop();
+                              DownloadSheet.show(
+                                context,
+                                episode,
+                                ref
+                                        .read(
+                                          mediaPreferenceProvider(
+                                            MatchArgs(
+                                              mediaTitle:
+                                                  media.title.availableTitle,
+                                              type: media.type,
+                                              sourceId: media.sourceId,
+                                              providerId: media.id,
+                                            ),
+                                          ),
+                                        )
+                                        .value
+                                        ?.sourceInfo ??
+                                    sources.first,
+                                media,
+                              );
+                            },
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.more_horiz),
+                ),
+              ];
+            },
           ),
         ),
       ],
@@ -257,17 +305,15 @@ class _EpisodesHeader extends ConsumerWidget {
       return const SizedBox.shrink();
     }
 
-    final sourceState = ref
-        .watch(
-          mediaPreferenceProvider(
-            MatchArgs(mediaTitle: title, type: media.type),
-          ),
-        )
-        .value;
-
-    final matchedMediaState = ref.watch(
-      matchedMediaProvider(MatchArgs(mediaTitle: title, type: media.type)),
+    final matchArgs = MatchArgs(
+      mediaTitle: title,
+      type: media.type,
+      sourceId: media.sourceId,
+      providerId: media.id,
     );
+    final sourceState = ref.watch(mediaPreferenceProvider(matchArgs)).value;
+
+    final matchedMediaState = ref.watch(matchedMediaProvider(matchArgs));
 
     final String matchedTitle;
     final bool hasError = matchedMediaState.hasError;
@@ -453,6 +499,8 @@ class _EpisodesHeader extends ConsumerWidget {
                               final matchArgs = MatchArgs(
                                 mediaTitle: title,
                                 type: media.type,
+                                sourceId: media.sourceId,
+                                providerId: media.id,
                               );
                               ref
                                   .read(
@@ -566,21 +614,17 @@ class _EpisodesHeader extends ConsumerWidget {
                                                 ),
                                           ).then((_) {
                                             if (selected) {
-                                              ref.invalidate(
-                                                matchedMediaProvider(
-                                                  MatchArgs(
-                                                    mediaTitle: title,
-                                                    type: media.type,
-                                                  ),
-                                                ),
+                                              final matchArgs = MatchArgs(
+                                                mediaTitle: title,
+                                                type: media.type,
+                                                sourceId: media.sourceId,
+                                                providerId: media.id,
                                               );
                                               ref.invalidate(
-                                                episodesListProvider(
-                                                  MatchArgs(
-                                                    mediaTitle: title,
-                                                    type: media.type,
-                                                  ),
-                                                ),
+                                                matchedMediaProvider(matchArgs),
+                                              );
+                                              ref.invalidate(
+                                                episodesListProvider(matchArgs),
                                               );
                                               if (media.sourceId != null) {
                                                 ref.invalidate(
@@ -642,6 +686,8 @@ class _EpisodesHeader extends ConsumerWidget {
                                     final matchArgs = MatchArgs(
                                       mediaTitle: title,
                                       type: media.type,
+                                      sourceId: media.sourceId,
+                                      providerId: media.id,
                                     );
                                     ref
                                         .read(
@@ -759,20 +805,20 @@ class _EpisodesHeader extends ConsumerWidget {
                                                       ),
                                                 ).then((_) {
                                                   if (hasSelectedVariant) {
+                                                    final matchArgs = MatchArgs(
+                                                      mediaTitle: title,
+                                                      type: media.type,
+                                                      sourceId: media.sourceId,
+                                                      providerId: media.id,
+                                                    );
                                                     ref.invalidate(
                                                       matchedMediaProvider(
-                                                        MatchArgs(
-                                                          mediaTitle: title,
-                                                          type: media.type,
-                                                        ),
+                                                        matchArgs,
                                                       ),
                                                     );
                                                     ref.invalidate(
                                                       episodesListProvider(
-                                                        MatchArgs(
-                                                          mediaTitle: title,
-                                                          type: media.type,
-                                                        ),
+                                                        matchArgs,
                                                       ),
                                                     );
                                                     if (media.sourceId !=
