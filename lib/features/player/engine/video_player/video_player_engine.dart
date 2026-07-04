@@ -7,15 +7,22 @@ import 'package:shonenx/shared/models/video_stream.dart';
 import 'package:video_player/video_player.dart';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shonenx/features/player/domain/video_player_prefs.dart';
+import 'package:shonenx/features/player/presentation/widgets/video_player/video_player_settings.dart';
 import 'package:shonenx/features/player/providers/video_engine_provider.dart';
 
 class VideoPlayerEngine implements VideoEngine {
   VideoPlayerController? _controller;
+  VideoPlayerPrefs prefs;
   final Ref ref;
 
   static final HTTP _http = HTTP();
 
-  VideoPlayerEngine(this.ref);
+  VideoPlayerEngine(this.prefs, this.ref);
+
+  Future<void> updatePrefs(VideoPlayerPrefs newPrefs) async {
+    prefs = newPrefs;
+  }
 
   @override
   Future<void> initialize(
@@ -30,12 +37,21 @@ class VideoPlayerEngine implements VideoEngine {
     _controller?.removeListener(_listener);
     await _controller?.dispose();
 
+    final headers = <String, String>{...?stream.headers};
+    if (prefs.userAgent != 'Default') {
+      headers['User-Agent'] = prefs.userAgent;
+    }
+
     _controller = VideoPlayerController.networkUrl(
       Uri.parse(stream.url),
-      httpHeaders: stream.headers ?? {},
-      formatHint: await _http.isHLS(stream.url, headers: stream.headers)
+      httpHeaders: headers,
+      formatHint: await _http.isHLS(stream.url, headers: headers)
           ? VideoFormat.hls
           : null,
+      videoPlayerOptions: VideoPlayerOptions(
+        mixWithOthers: prefs.mixWithOthers,
+        allowBackgroundPlayback: prefs.allowBackgroundPlayback,
+      ),
     );
     _controller?.addListener(_listener);
 
@@ -83,6 +99,11 @@ class VideoPlayerEngine implements VideoEngine {
         final size = _controller!.value.size;
         final aspectWidth = size.width > 0 ? size.width : 16.0;
         final aspectHeight = size.height > 0 ? size.height : 9.0;
+        final aspectRatio = aspectWidth / aspectHeight;
+
+        final screenWidth = MediaQuery.sizeOf(context).width;
+        final boxWidth = screenWidth > 0 ? screenWidth : 1280.0;
+        final boxHeight = boxWidth / aspectRatio;
 
         return ColoredBox(
           color: Colors.black,
@@ -90,8 +111,8 @@ class VideoPlayerEngine implements VideoEngine {
             child: FittedBox(
               fit: fit,
               child: SizedBox(
-                width: aspectWidth,
-                height: aspectHeight,
+                width: boxWidth,
+                height: boxHeight,
                 child: VideoPlayer(_controller!),
               ),
             ),
@@ -102,9 +123,8 @@ class VideoPlayerEngine implements VideoEngine {
   }
 
   @override
-  Widget? buildSettingsView(BuildContext context) {
-    return null;
-  }
+  Widget? buildSettingsView(BuildContext context) =>
+      const VideoPlayerSettings();
 
   @override
   Future<void> play() async {
@@ -156,6 +176,11 @@ class VideoPlayerEngine implements VideoEngine {
     } catch (_) {
       await _controller!.setClosedCaptionFile(null);
     }
+  }
+
+  @override
+  Future<void> setAudioTrack(AudioTrack track) async {
+    throw UnimplementedError("Not supported by video_player");
   }
 
   @override
