@@ -2,11 +2,14 @@ import 'package:anymex_extension_runtime_bridge/anymex_extension_runtime_bridge.
     as bridge;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:get/get.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:shonenx/shared/widgets/app_bottom_sheet.dart';
 import 'package:shonenx/shared/widgets/app_scaffold.dart';
 import 'package:shonenx/source_engine/source_registry.dart';
+
+import 'package:shonenx/features/settings/presentation/widgets/settings_ui_components.dart';
 
 import 'widgets/manage_repos_sheet.dart';
 import 'widgets/runtime_setup_sheet.dart';
@@ -15,11 +18,13 @@ import 'widgets/sources_tab.dart';
 class ExtensionsSettingsScreen extends ConsumerStatefulWidget {
   final String? autoAddUrl;
   final String? autoAddType;
+  final String? autoAddManager;
 
   const ExtensionsSettingsScreen({
     super.key,
     this.autoAddUrl,
     this.autoAddType,
+    this.autoAddManager,
   });
 
   @override
@@ -33,6 +38,7 @@ class _ExtensionsSettingsScreenState
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
   String _selectedLangFilter = 'All';
+  String _selectedEngineFilter = 'All';
 
   @override
   void initState() {
@@ -43,6 +49,7 @@ class _ExtensionsSettingsScreenState
           context,
           autoAddUrl: widget.autoAddUrl,
           autoAddType: widget.autoAddType,
+          autoAddManager: widget.autoAddManager,
         );
       } else {
         final manager = ref.read(extensionManagerProvider);
@@ -67,7 +74,7 @@ class _ExtensionsSettingsScreenState
     final manager = ref.watch(extensionManagerProvider);
 
     return DefaultTabController(
-      length: 4,
+      length: 6,
       child: AppScaffold(
         title: _isSearching ? null : 'Sources',
         floatingActionButtonLocation: MediaQuery.of(context).size.width < 600
@@ -76,35 +83,56 @@ class _ExtensionsSettingsScreenState
         titleWidget: _isSearching ? _buildSearchField(theme) : null,
         barBottom: _buildTabBar(),
         actions: _buildActions(context, manager),
-        body: TabBarView(
+        body: Column(
           children: [
-            SourcesTab(
-              manager: manager,
-              type: bridge.ItemType.anime,
-              searchQuery: _searchQuery,
-              langFilter: _selectedLangFilter,
-              isInstalled: true,
-            ),
-            SourcesTab(
-              manager: manager,
-              type: bridge.ItemType.manga,
-              searchQuery: _searchQuery,
-              langFilter: _selectedLangFilter,
-              isInstalled: true,
-            ),
-            SourcesTab(
-              manager: manager,
-              type: bridge.ItemType.anime,
-              searchQuery: _searchQuery,
-              langFilter: _selectedLangFilter,
-              isInstalled: false,
-            ),
-            SourcesTab(
-              manager: manager,
-              type: bridge.ItemType.manga,
-              searchQuery: _searchQuery,
-              langFilter: _selectedLangFilter,
-              isInstalled: false,
+            _buildEngineFilterBar(theme),
+            Expanded(
+              child: TabBarView(
+                children: [
+                  SourcesTab(
+                    engineFilter: _selectedEngineFilter,
+                    type: bridge.ItemType.anime,
+                    searchQuery: _searchQuery,
+                    langFilter: _selectedLangFilter,
+                    isInstalled: true,
+                  ),
+                  SourcesTab(
+                    engineFilter: _selectedEngineFilter,
+                    type: bridge.ItemType.manga,
+                    searchQuery: _searchQuery,
+                    langFilter: _selectedLangFilter,
+                    isInstalled: true,
+                  ),
+                  SourcesTab(
+                    engineFilter: _selectedEngineFilter,
+                    type: bridge.ItemType.novel,
+                    searchQuery: _searchQuery,
+                    langFilter: _selectedLangFilter,
+                    isInstalled: true,
+                  ),
+                  SourcesTab(
+                    engineFilter: _selectedEngineFilter,
+                    type: bridge.ItemType.anime,
+                    searchQuery: _searchQuery,
+                    langFilter: _selectedLangFilter,
+                    isInstalled: false,
+                  ),
+                  SourcesTab(
+                    engineFilter: _selectedEngineFilter,
+                    type: bridge.ItemType.manga,
+                    searchQuery: _searchQuery,
+                    langFilter: _selectedLangFilter,
+                    isInstalled: false,
+                  ),
+                  SourcesTab(
+                    engineFilter: _selectedEngineFilter,
+                    type: bridge.ItemType.novel,
+                    searchQuery: _searchQuery,
+                    langFilter: _selectedLangFilter,
+                    isInstalled: false,
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -132,20 +160,174 @@ class _ExtensionsSettingsScreenState
   }
 
   PreferredSizeWidget _buildTabBar() {
-    return const PreferredSize(
-      preferredSize: Size.fromHeight(40),
+    final animeSources = ref.watch(availableAnimeSourcesProvider).value ?? [];
+    final mangaSources = ref.watch(availableMangaSourcesProvider).value ?? [];
+    final novelSources = ref.watch(availableNovelSourcesProvider).value ?? [];
+    final enabledManagers = ref.watch(enabledExtensionManagersProvider);
+
+    return PreferredSize(
+      preferredSize: const Size.fromHeight(40),
       child: Expanded(
-        child: TabBar(
-          isScrollable: true,
-          indicatorSize: TabBarIndicatorSize.tab,
-          indicatorAnimation: TabIndicatorAnimation.linear,
-          tabs: [
-            Tab(text: 'Installed Anime'),
-            Tab(text: 'Installed Manga'),
-            Tab(text: 'Available Anime'),
-            Tab(text: 'Available Manga'),
-          ],
-        ),
+        child: Obx(() {
+          final countInstalledAnime = getSourcesTabCount(
+            type: bridge.ItemType.anime,
+            isInstalled: true,
+            engineFilter: _selectedEngineFilter,
+            searchQuery: _searchQuery,
+            langFilter: _selectedLangFilter,
+            animeSources: animeSources,
+            mangaSources: mangaSources,
+            novelSources: novelSources,
+            enabledManagers: enabledManagers.toList(),
+          );
+          final countInstalledManga = getSourcesTabCount(
+            type: bridge.ItemType.manga,
+            isInstalled: true,
+            engineFilter: _selectedEngineFilter,
+            searchQuery: _searchQuery,
+            langFilter: _selectedLangFilter,
+            animeSources: animeSources,
+            mangaSources: mangaSources,
+            novelSources: novelSources,
+            enabledManagers: enabledManagers.toList(),
+          );
+          final countInstalledNovel = getSourcesTabCount(
+            type: bridge.ItemType.novel,
+            isInstalled: true,
+            engineFilter: _selectedEngineFilter,
+            searchQuery: _searchQuery,
+            langFilter: _selectedLangFilter,
+            animeSources: animeSources,
+            mangaSources: mangaSources,
+            novelSources: novelSources,
+            enabledManagers: enabledManagers.toList(),
+          );
+          final countAvailableAnime = getSourcesTabCount(
+            type: bridge.ItemType.anime,
+            isInstalled: false,
+            engineFilter: _selectedEngineFilter,
+            searchQuery: _searchQuery,
+            langFilter: _selectedLangFilter,
+            animeSources: animeSources,
+            mangaSources: mangaSources,
+            novelSources: novelSources,
+            enabledManagers: enabledManagers.toList().toList(),
+          );
+          final countAvailableManga = getSourcesTabCount(
+            type: bridge.ItemType.manga,
+            isInstalled: false,
+            engineFilter: _selectedEngineFilter,
+            searchQuery: _searchQuery,
+            langFilter: _selectedLangFilter,
+            animeSources: animeSources,
+            mangaSources: mangaSources,
+            novelSources: novelSources,
+            enabledManagers: enabledManagers.toList().toList(),
+          );
+          final countAvailableNovel = getSourcesTabCount(
+            type: bridge.ItemType.novel,
+            isInstalled: false,
+            engineFilter: _selectedEngineFilter,
+            searchQuery: _searchQuery,
+            langFilter: _selectedLangFilter,
+            animeSources: animeSources,
+            mangaSources: mangaSources,
+            novelSources: novelSources,
+            enabledManagers: enabledManagers.toList().toList(),
+          );
+
+          return TabBar(
+            isScrollable: true,
+            indicatorSize: TabBarIndicatorSize.tab,
+            indicatorAnimation: TabIndicatorAnimation.linear,
+            tabs: [
+              _buildTab('Installed Anime', countInstalledAnime),
+              _buildTab('Installed Manga', countInstalledManga),
+              _buildTab('Installed Novel', countInstalledNovel),
+              _buildTab('Available Anime', countAvailableAnime),
+              _buildTab('Available Manga', countAvailableManga),
+              _buildTab('Available Novel', countAvailableNovel),
+            ],
+          );
+        }),
+      ),
+    );
+  }
+
+  Widget _buildTab(String text, int count) {
+    final countStr = count > 100 ? '100+' : count.toString();
+    final cs = Theme.of(context).colorScheme;
+    return Tab(
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(text),
+          const SizedBox(width: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: cs.primaryContainer,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Text(
+              countStr,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                color: cs.onPrimaryContainer,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEngineFilterBar(ThemeData theme) {
+    const engines = [
+      'All',
+      'Mangayomi',
+      'Tachiyomi',
+      'CloudStream',
+      'Kotatsu',
+      'Sora',
+    ];
+    return Container(
+      height: 52,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: engines.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (context, index) {
+          final engine = engines[index];
+          final isSelected = _selectedEngineFilter == engine;
+          return FilterChip(
+            label: Text(engine),
+            selected: isSelected,
+            onSelected: (selected) {
+              setState(() => _selectedEngineFilter = engine);
+            },
+            showCheckmark: false,
+            labelStyle: TextStyle(
+              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+              color: isSelected
+                  ? theme.colorScheme.onPrimaryContainer
+                  : theme.colorScheme.onSurface,
+            ),
+            backgroundColor: theme.colorScheme.surfaceContainerHighest
+                .withOpacity(0.3),
+            selectedColor: theme.colorScheme.primaryContainer,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: BorderSide(
+                color: isSelected
+                    ? theme.colorScheme.primary
+                    : theme.colorScheme.outlineVariant.withOpacity(0.5),
+              ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -168,7 +350,7 @@ class _ExtensionsSettingsScreenState
     }
 
     return [
-      _buildLanguageFilter(manager),
+      _buildLanguageFilter(),
       IconButton(
         icon: const Icon(Icons.search),
         onPressed: () => setState(() => _isSearching = true),
@@ -185,25 +367,21 @@ class _ExtensionsSettingsScreenState
     ];
   }
 
-  Widget _buildLanguageFilter(bridge.Extension manager) {
+  Widget _buildLanguageFilter() {
     final Set<String> langs = {'All'};
-    final availableAnime = manager.getAvailableRx(bridge.ItemType.anime).value;
-    for (final e in availableAnime) {
-      if (e.lang != null) langs.add(e.lang!);
-    }
-    final installedAnime = manager.getInstalledRx(bridge.ItemType.anime).value;
-    for (final e in installedAnime) {
-      if (e.lang != null) langs.add(e.lang!);
-    }
-
-    final availableManga = manager.getAvailableRx(bridge.ItemType.manga).value;
-    for (final e in availableManga) {
-      if (e.lang != null) langs.add(e.lang!);
-    }
-    final installedManga = manager.getInstalledRx(bridge.ItemType.manga).value;
-    for (final e in installedManga) {
-      if (e.lang != null) langs.add(e.lang!);
-    }
+    try {
+      final bridgeManager = Get.find<bridge.ExtensionManager>();
+      for (final e in [
+        ...bridgeManager.availableAnimeExtensions,
+        ...bridgeManager.installedAnimeExtensions,
+        ...bridgeManager.availableMangaExtensions,
+        ...bridgeManager.installedMangaExtensions,
+        ...bridgeManager.availableNovelExtensions,
+        ...bridgeManager.installedNovelExtensions,
+      ]) {
+        if (e.lang != null) langs.add(e.lang!);
+      }
+    } catch (_) {}
 
     final sortedLangs = langs.toList()..sort();
 
@@ -244,49 +422,14 @@ class _ExtensionsSettingsScreenState
       verticalDirection: VerticalDirection.up,
       children: [
         SizedBox(
-          height: 48,
-          child: SegmentedButton<String>(
-            style: SegmentedButton.styleFrom(
-              minimumSize: const Size(0, 44),
-              tapTargetSize: MaterialTapTargetSize.padded,
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-            ),
-            segments: const [
-              ButtonSegment(
-                value: 'mangayomi',
-                label: Text('Mangayomi', style: TextStyle(fontSize: 12)),
-              ),
-              ButtonSegment(
-                value: 'aniyomi',
-                label: Text('Tachiyomi', style: TextStyle(fontSize: 12)),
-              ),
-              ButtonSegment(
-                value: 'cloudstream',
-                label: Text('CloudStream', style: TextStyle(fontSize: 12)),
-              ),
-            ],
-            selected: {manager.id.replaceAll('-desktop', '')},
-            onSelectionChanged: (selected) {
-              final target = selected.first;
-              if ((target == 'aniyomi' || target == 'cloudstream') &&
-                  !bridge.AnymeXRuntimeBridge.controller.isReady.value) {
-                showRuntimeSetupSheet(
-                  context,
-                  ref,
-                  onComplete: () {
-                    ref
-                        .read(extensionManagerProvider.notifier)
-                        .setManager(target);
-                    ref.invalidate(availableAnimeSourcesProvider);
-                    ref.invalidate(availableMangaSourcesProvider);
-                  },
-                );
-                return;
-              }
-              ref.read(extensionManagerProvider.notifier).setManager(target);
-              ref.invalidate(availableAnimeSourcesProvider);
-              ref.invalidate(availableMangaSourcesProvider);
-            },
+          height: 44,
+          child: FloatingActionButton.extended(
+            heroTag: 'manage_engines_fab',
+            backgroundColor: theme.colorScheme.secondaryContainer,
+            foregroundColor: theme.colorScheme.onSecondaryContainer,
+            icon: const Icon(Icons.extension_rounded, size: 18),
+            label: const Text('Manage Engines', style: TextStyle(fontSize: 13)),
+            onPressed: () => _showManageEnginesSheet(context),
           ),
         ),
         SizedBox(
@@ -301,6 +444,125 @@ class _ExtensionsSettingsScreenState
           ),
         ),
       ],
+    );
+  }
+
+  void _showManageEnginesSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return Consumer(
+          builder: (context, ref, _) {
+            final enabled = ref.watch(enabledExtensionManagersProvider);
+            final notifier = ref.read(
+              enabledExtensionManagersProvider.notifier,
+            );
+            final cs = Theme.of(context).colorScheme;
+
+            final engines = [
+              (
+                'mangayomi',
+                'Mangayomi',
+                'All-in-one Anime & Manga extensions',
+                Icons.auto_awesome_mosaic_rounded,
+              ),
+              (
+                'aniyomi',
+                'Tachiyomi / Aniyomi',
+                'Vast catalog of Manga & Anime extensions',
+                Icons.video_library_rounded,
+              ),
+              (
+                'cloudstream',
+                'CloudStream',
+                'Video streaming & media extensions',
+                Icons.cloud_queue_rounded,
+              ),
+              (
+                'kotatsu',
+                'Kotatsu',
+                'Manga reading extensions',
+                Icons.menu_book_rounded,
+              ),
+              (
+                'sora',
+                'Sora',
+                'Novel & Anime extensions',
+                Icons.auto_stories_rounded,
+              ),
+            ];
+
+            return AppBottomSheet(
+              title: 'Manage Extension Engines',
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 4,
+                    ),
+                    child: Text(
+                      'Enable or disable extension engines. Enabled engines will appear in your catalogs and discovery feeds.',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: cs.onSurfaceVariant,
+                        height: 1.3,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  ...engines.map((e) {
+                    final id = e.$1;
+                    final title = e.$2;
+                    final desc = e.$3;
+                    final icon = e.$4;
+                    final isEnabled = enabled.contains(id);
+
+                    return SettingsSwitchTile(
+                      icon: icon,
+                      title: title,
+                      subtitle: desc,
+                      value: isEnabled,
+                      onChanged: (val) {
+                        if (val &&
+                            (id == 'aniyomi' ||
+                                id == 'cloudstream' ||
+                                id == 'kotatsu')) {
+                          if (!bridge
+                              .AnymeXRuntimeBridge
+                              .controller
+                              .isReady
+                              .value) {
+                            showRuntimeSetupSheet(
+                              context,
+                              ref,
+                              onComplete: () {
+                                notifier.toggleManager(id, true);
+                                ref.invalidate(availableAnimeSourcesProvider);
+                                ref.invalidate(availableMangaSourcesProvider);
+                                ref.invalidate(availableNovelSourcesProvider);
+                              },
+                            );
+                            return;
+                          }
+                        }
+                        notifier.toggleManager(id, val);
+                        ref.invalidate(availableAnimeSourcesProvider);
+                        ref.invalidate(availableMangaSourcesProvider);
+                        ref.invalidate(availableNovelSourcesProvider);
+                      },
+                    );
+                  }),
+                  const SizedBox(height: 16),
+                ],
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -430,6 +692,7 @@ class _ExtensionsSettingsScreenState
     BuildContext context, {
     String? autoAddUrl,
     String? autoAddType,
+    String? autoAddManager,
   }) {
     final manager = ref.watch(extensionManagerProvider);
 
@@ -441,6 +704,7 @@ class _ExtensionsSettingsScreenState
         manager: manager,
         autoAddUrl: autoAddUrl,
         autoAddType: autoAddType,
+        autoAddManager: autoAddManager,
       ),
     );
   }
