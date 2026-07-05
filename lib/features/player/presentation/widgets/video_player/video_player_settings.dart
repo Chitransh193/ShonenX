@@ -1,119 +1,146 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:video_player/video_player.dart';
-import 'package:fvp/fvp.dart';
-import 'package:shonenx/features/player/providers/mdk_prefs_provider.dart';
-import 'package:shonenx/features/settings/presentation/widgets/raw_config_override_sheet.dart';
+import 'package:shonenx/features/player/providers/video_player_prefs_provider.dart';
 import 'package:shonenx/features/settings/presentation/widgets/settings_ui_components.dart';
 import 'package:shonenx/shared/widgets/app_bottom_sheet.dart';
 
-class MdkVideoPlayerSettings extends ConsumerWidget {
-  final VideoPlayerController? controller;
-
-  const MdkVideoPlayerSettings({super.key, this.controller});
+class VideoPlayerSettings extends ConsumerWidget {
+  const VideoPlayerSettings({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final mdkPrefs = ref.watch(mdkPrefsProvider);
-    final notifier = ref.read(mdkPrefsProvider.notifier);
+    final prefs = ref.watch(videoPlayerPrefsProvider);
+    final prefsNotifier = ref.read(videoPlayerPrefsProvider.notifier);
 
     return AppBottomSheet(
-      title: 'MDK performance & buffer',
+      title: 'ExoPlayer preferences',
       child: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            SettingsDropdownTile<int>(
+            SettingsSwitchTile(
+              icon: Icons.video_settings_outlined,
+              title: 'Enable hardware acceleration',
+              subtitle:
+                  'Use GPU decoding. Disable if experiencing green screen, artifacting, or freezes',
+              value: prefs.enableHardwareAcceleration,
+              onChanged: (value) => prefsNotifier.updatePrefs(
+                prefs.copyWith(enableHardwareAcceleration: value),
+              ),
+            ),
+            SettingsDropdownTile<Duration>(
               icon: Icons.speed_rounded,
-              title: 'Buffer capacity',
-              value: mdkPrefs.bufferCapacityMs,
+              title: 'Minimum pre-buffer',
+              value: prefs.minBuffer,
               items: const [
                 DropdownMenuItem(
-                  value: 5000,
-                  child: Text('Fast start (5s buffer)'),
+                  value: Duration(seconds: 3),
+                  child: Text('3 seconds'),
                 ),
                 DropdownMenuItem(
-                  value: 15000,
-                  child: Text('Balanced (15s buffer)'),
+                  value: Duration(seconds: 5),
+                  child: Text('5 seconds'),
                 ),
                 DropdownMenuItem(
-                  value: 30000,
-                  child: Text('Deep buffer (30s anti-stutter)'),
+                  value: Duration(seconds: 10),
+                  child: Text('10 seconds'),
                 ),
                 DropdownMenuItem(
-                  value: 60000,
-                  child: Text('Max cache (60s buffer)'),
+                  value: Duration(seconds: 15),
+                  child: Text('15 seconds'),
                 ),
               ],
               onChanged: (value) {
                 if (value != null) {
-                  notifier.updatePrefs(mdkPrefs.copyWith(bufferCapacityMs: value));
-                  controller?.setBufferRange(
-                    min: 1000,
-                    max: value,
-                    drop: mdkPrefs.dropFrames,
-                  );
+                  prefsNotifier.updatePrefs(prefs.copyWith(minBuffer: value));
                 }
               },
             ),
-            SettingsDropdownTile<String>(
-              icon: Icons.memory_outlined,
-              title: 'Hardware decoder priority',
-              value: mdkPrefs.decoderPriority,
-              items: ['Auto', 'D3D11', 'NVDEC', 'FFmpeg']
-                  .map((e) => DropdownMenuItem(value: e, child: Text(e)))
-                  .toList(),
+            SettingsDropdownTile<Duration>(
+              icon: Icons.all_inclusive_rounded,
+              title: 'Maximum buffer capacity',
+              value: prefs.maxBuffer,
+              items: const [
+                DropdownMenuItem(
+                  value: Duration(seconds: 15),
+                  child: Text('15 seconds'),
+                ),
+                DropdownMenuItem(
+                  value: Duration(seconds: 30),
+                  child: Text('30 seconds'),
+                ),
+                DropdownMenuItem(
+                  value: Duration(seconds: 60),
+                  child: Text('60 seconds'),
+                ),
+                DropdownMenuItem(
+                  value: Duration(seconds: 120),
+                  child: Text('120 seconds'),
+                ),
+              ],
               onChanged: (value) {
                 if (value != null) {
-                  notifier.updatePrefs(mdkPrefs.copyWith(decoderPriority: value));
-                  if (value == 'Auto') {
-                    controller?.setVideoDecoders([]);
-                  } else {
-                    controller?.setVideoDecoders([value]);
-                  }
+                  prefsNotifier.updatePrefs(prefs.copyWith(maxBuffer: value));
                 }
               },
             ),
             SettingsSwitchTile(
-              icon: Icons.fast_forward_rounded,
-              title: 'Fast hardware keyframe seek',
-              value: mdkPrefs.enableFastSeek,
+              icon: Icons.timeline,
+              title: 'Enable low latency',
+              subtitle:
+                  'Optimize HLS/DASH stream fetching. Turn off if buffering occurs frequently',
+              value: prefs.enableLowLatency,
+              onChanged: (value) => prefsNotifier.updatePrefs(
+                prefs.copyWith(enableLowLatency: value),
+              ),
+            ),
+            SettingsDropdownTile<String>(
+              icon: Icons.security_rounded,
+              title: 'Network User-Agent Override',
+              value: prefs.userAgent,
+              items: const [
+                DropdownMenuItem(
+                  value: 'Default',
+                  child: Text('Default (Stream provided)'),
+                ),
+                DropdownMenuItem(
+                  value: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                  child: Text('Desktop Chrome (Windows)'),
+                ),
+                DropdownMenuItem(
+                  value: 'Mozilla/5.0 (Linux; Android 14)',
+                  child: Text('Mobile Android'),
+                ),
+                DropdownMenuItem(
+                  value: 'ExoPlayer/ShonenX',
+                  child: Text('ExoPlayer ShonenX'),
+                ),
+              ],
               onChanged: (value) {
-                notifier.updatePrefs(mdkPrefs.copyWith(enableFastSeek: value));
+                if (value != null) {
+                  prefsNotifier.updatePrefs(prefs.copyWith(userAgent: value));
+                }
               },
             ),
             SettingsSwitchTile(
-              icon: Icons.sync_problem_rounded,
-              title: 'Drop late frames on high load',
-              value: mdkPrefs.dropFrames,
-              onChanged: (value) {
-                notifier.updatePrefs(mdkPrefs.copyWith(dropFrames: value));
-                controller?.setBufferRange(
-                  min: 1000,
-                  max: mdkPrefs.bufferCapacityMs,
-                  drop: value,
-                );
-              },
+              icon: Icons.play_circle_outline,
+              title: 'Allow background playback',
+              subtitle:
+                  'Continue playing audio when app is minimized or screen is off',
+              value: prefs.allowBackgroundPlayback,
+              onChanged: (value) => prefsNotifier.updatePrefs(
+                prefs.copyWith(allowBackgroundPlayback: value),
+              ),
             ),
-            SettingsActionTile(
-              icon: Icons.code_rounded,
-              title: 'Raw Configuration Overrides',
-              subtitle: mdkPrefs.rawConfiguration.isEmpty
-                  ? 'Caution: Inject raw MDK properties'
-                  : 'Configured (${mdkPrefs.rawConfiguration.split("\n").length} overrides)',
-              onTap: () {
-                showDialog(
-                  context: context,
-                  builder: (_) => RawConfigOverrideSheet(
-                    title: 'MDK Raw Configuration',
-                    initialValue: mdkPrefs.rawConfiguration,
-                    hintText: 'e.g.\navio.reconnect=1\navformat.fpsprobesize=0',
-                    onSave: (val) => notifier.updatePrefs(
-                      mdkPrefs.copyWith(rawConfiguration: val),
-                    ),
-                  ),
-                );
-              },
+            SettingsSwitchTile(
+              icon: Icons.headset_rounded,
+              title: 'Mix audio with others',
+              subtitle:
+                  'Play video audio concurrently with other music players or apps',
+              value: prefs.mixWithOthers,
+              onChanged: (value) => prefsNotifier.updatePrefs(
+                prefs.copyWith(mixWithOthers: value),
+              ),
             ),
           ],
         ),

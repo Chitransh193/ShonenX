@@ -7,18 +7,22 @@ import 'package:shonenx/shared/models/video_stream.dart';
 import 'package:video_player/video_player.dart';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shonenx/features/player/providers/mdk_prefs_provider.dart';
-import 'package:shonenx/features/player/providers/video_engine_provider.dart';
+import 'package:shonenx/features/player/domain/video_player_prefs.dart';
 import 'package:shonenx/features/player/presentation/widgets/video_player/video_player_settings.dart';
-import 'package:fvp/fvp.dart';
+import 'package:shonenx/features/player/providers/video_engine_provider.dart';
 
 class VideoPlayerEngine implements VideoEngine {
   VideoPlayerController? _controller;
+  VideoPlayerPrefs prefs;
   final Ref ref;
 
   static final HTTP _http = HTTP();
 
-  VideoPlayerEngine(this.ref);
+  VideoPlayerEngine(this.prefs, this.ref);
+
+  Future<void> updatePrefs(VideoPlayerPrefs newPrefs) async {
+    prefs = newPrefs;
+  }
 
   @override
   Future<void> initialize(
@@ -33,38 +37,25 @@ class VideoPlayerEngine implements VideoEngine {
     _controller?.removeListener(_listener);
     await _controller?.dispose();
 
+    final headers = <String, String>{...?stream.headers};
+    if (prefs.userAgent != 'Default') {
+      headers['User-Agent'] = prefs.userAgent;
+    }
+
     _controller = VideoPlayerController.networkUrl(
       Uri.parse(stream.url),
-      httpHeaders: stream.headers ?? {},
-      formatHint: await _http.isHLS(stream.url, headers: stream.headers)
+      httpHeaders: headers,
+      formatHint: await _http.isHLS(stream.url, headers: headers)
           ? VideoFormat.hls
           : null,
+      videoPlayerOptions: VideoPlayerOptions(
+        mixWithOthers: prefs.mixWithOthers,
+        allowBackgroundPlayback: prefs.allowBackgroundPlayback,
+      ),
     );
     _controller?.addListener(_listener);
 
     await _controller?.initialize();
-
-    try {
-      final mdkPrefs = ref.read(mdkPrefsProvider);
-      if (mdkPrefs.decoderPriority != 'Auto') {
-        _controller?.setVideoDecoders([mdkPrefs.decoderPriority]);
-      }
-      _controller?.setBufferRange(
-        min: 1000,
-        max: mdkPrefs.bufferCapacityMs,
-        drop: mdkPrefs.dropFrames,
-      );
-      if (mdkPrefs.rawConfiguration.isNotEmpty) {
-        for (final line in mdkPrefs.rawConfiguration.split('\n')) {
-          final trimmed = line.trim();
-          if (trimmed.isEmpty || trimmed.startsWith('#')) continue;
-          final parts = trimmed.split('=');
-          if (parts.length == 2) {
-            _controller?.setProperty(parts[0].trim(), parts[1].trim());
-          }
-        }
-      }
-    } catch (_) {}
 
     if (subtitle != null) {
       await setSubtitle(subtitle);
@@ -108,6 +99,11 @@ class VideoPlayerEngine implements VideoEngine {
         final size = _controller!.value.size;
         final aspectWidth = size.width > 0 ? size.width : 16.0;
         final aspectHeight = size.height > 0 ? size.height : 9.0;
+        final aspectRatio = aspectWidth / aspectHeight;
+
+        final screenWidth = MediaQuery.sizeOf(context).width;
+        final boxWidth = screenWidth > 0 ? screenWidth : 1280.0;
+        final boxHeight = boxWidth / aspectRatio;
 
         return ColoredBox(
           color: Colors.black,
@@ -115,8 +111,8 @@ class VideoPlayerEngine implements VideoEngine {
             child: FittedBox(
               fit: fit,
               child: SizedBox(
-                width: aspectWidth,
-                height: aspectHeight,
+                width: boxWidth,
+                height: boxHeight,
                 child: VideoPlayer(_controller!),
               ),
             ),
@@ -127,10 +123,8 @@ class VideoPlayerEngine implements VideoEngine {
   }
 
   @override
-  Widget? buildSettingsView(BuildContext context) {
-    if (_controller == null || !_controller!.value.isInitialized) return null;
-    return MdkVideoPlayerSettings(controller: _controller!);
-  }
+  Widget? buildSettingsView(BuildContext context) =>
+      const VideoPlayerSettings();
 
   @override
   Future<void> play() async {
@@ -144,11 +138,7 @@ class VideoPlayerEngine implements VideoEngine {
 
   @override
   Future<void> seekTo(Duration position) async {
-    try {
-      await _controller?.fastSeekTo(position);
-    } catch (_) {
-      await _controller?.seekTo(position);
-    }
+    await _controller?.seekTo(position);
   }
 
   @override
@@ -167,10 +157,30 @@ class VideoPlayerEngine implements VideoEngine {
   Future<void> setSubtitle(SubtitleTrack? subtitle) async {
     if (_controller == null) return;
     if (subtitle == null || subtitle.url.isEmpty) {
-      _controller!.setSubtitleTracks([]);
+      await _controller!.setClosedCaptionFile(null);
       return;
     }
-    _controller!.setExternalSubtitle(subtitle.url);
+    try {
+      final response = await _http.get(subtitle.url);
+      if (response.statusCode == 200) {
+        final content = response.body;
+        ClosedCaptionFile captionFile;
+        if (subtitle.url.toLowerCase().endsWith('.vtt') ||
+            content.contains('WEBVTT')) {
+          captionFile = WebVTTCaptionFile(content);
+        } else {
+          captionFile = SubRipCaptionFile(content);
+        }
+        await _controller!.setClosedCaptionFile(Future.value(captionFile));
+      }
+    } catch (_) {
+      await _controller!.setClosedCaptionFile(null);
+    }
+  }
+
+  @override
+  Future<void> setAudioTrack(AudioTrack track) async {
+    throw UnimplementedError("Not supported by video_player");
   }
 
   @override

@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shonenx/core/utils/formatting.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:shonenx/features/discovery/presentation/widgets/episodes_panel/episode_list_panel.dart';
 import 'package:shonenx/features/player/domain/aniskip_prefs.dart';
@@ -126,6 +127,16 @@ class _BottomControlsState extends ConsumerState<BottomControls> {
 
     final isCompact = mediaQuery.size.width < 450;
     final isVeryCompact = mediaQuery.size.width < 350;
+
+    final audioTracks = ref.watch(
+      videoEngineStateProvider.select((s) => s.audioTracks),
+    );
+    final activeAudioTrack = ref.watch(
+      videoEngineStateProvider.select((s) => s.activeAudioTrack),
+    );
+    final actualAudioCount = audioTracks
+        .where((t) => t.id != 'auto' && t.id != 'no')
+        .length;
 
     return AnimatedPositioned(
       duration: Durations.medium2,
@@ -302,6 +313,36 @@ class _BottomControlsState extends ConsumerState<BottomControls> {
                             ),
                           ),
 
+                        if (actualAudioCount > 0) ...[
+                          const SizedBox(width: 12),
+                          _buildBottomSheetTrigger<AudioTrack>(
+                            context: context,
+                            value: activeAudioTrack,
+                            items: audioTracks,
+                            itemLabel: (s) => s.label,
+                            onChanged: (v) {
+                              widget.controller.changeAudioTrack(v);
+                            },
+                            withBadge: false,
+                            displayText: 'Audio',
+                            displayWidget: Badge(
+                              label: Text(actualAudioCount.toString()),
+                              isLabelVisible: actualAudioCount > 0,
+                              backgroundColor: widget.theme.colorScheme.primary,
+                              textColor: widget.theme.colorScheme.onPrimary,
+                              child: activeAudioTrack?.id == 'no'
+                                  ? const Icon(
+                                      Icons.volume_off_outlined,
+                                      color: Colors.white,
+                                    )
+                                  : const Icon(
+                                      Icons.audiotrack_outlined,
+                                      color: Colors.white,
+                                    ),
+                            ),
+                          ),
+                        ],
+
                         if (widget.mode is PlayerModeOnline) ...[
                           const SizedBox(width: 12),
                           _buildActionIcon(
@@ -384,7 +425,8 @@ class _BottomControlsState extends ConsumerState<BottomControls> {
                             context: context,
                             value: widget.playerState.activeServer,
                             items: widget.playerState.servers,
-                            itemLabel: (s) => '[ ${s.id} ] ${s.name}',
+                            itemLabel: (s) =>
+                                '[ ${trimText(s.id, maxLength: 30)} ] ${s.name}',
                             onChanged: (v) {
                               widget.controller.changeServer(v);
                             },
@@ -407,25 +449,27 @@ class _BottomControlsState extends ConsumerState<BottomControls> {
                                 return null;
                               }
 
-                              final isDub = s.type == ServerType.dub;
-
                               return Container(
                                 padding: const EdgeInsets.symmetric(
                                   horizontal: 6,
                                   vertical: 2,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: isDub
+                                  color: s.type == ServerType.dub
                                       ? theme.colorScheme.primary
                                       : theme.colorScheme.secondary,
                                   borderRadius: BorderRadius.circular(4),
                                 ),
                                 child: Text(
-                                  isDub ? 'DUB' : 'SUB',
+                                  s.type == ServerType.dub
+                                      ? 'DUB'
+                                      : s.type == ServerType.sub
+                                      ? 'SUB'
+                                      : '',
                                   style: TextStyle(
                                     fontSize: 10,
                                     fontWeight: FontWeight.w700,
-                                    color: isDub
+                                    color: s.type == ServerType.dub
                                         ? theme.colorScheme.onPrimary
                                         : theme.colorScheme.onSecondary,
                                   ),

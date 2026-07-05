@@ -22,7 +22,6 @@ import 'package:shonenx/features/library/domain/models/library_entry.dart';
 import 'package:shonenx/features/notifications/domain/models/notification_subscription.dart';
 import 'package:shonenx/features/tracking/domain/isar_tracker_link.dart';
 import 'package:window_manager/window_manager.dart';
-import 'package:fvp/fvp.dart' as fvp;
 
 class AppInit {
   static bool isBridgeInitialized = false;
@@ -222,8 +221,5 @@ class AppInit {
 
     MediaKit.ensureInitialized();
     log.i('MediaKit initialized');
-
-    fvp.registerWith();
-    log.i('FVP backend initialized');
   }
 }

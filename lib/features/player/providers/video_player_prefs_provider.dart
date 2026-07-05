@@ -1,25 +1,25 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shonenx/shared/providers/storage_provider.dart';
-import 'package:shonenx/features/player/domain/exo_player_prefs.dart';
+import 'package:shonenx/features/player/domain/video_player_prefs.dart';
 
-class ExoPlayerPrefsNotifier extends Notifier<ExoPlayerPrefs> {
-  static const _key = 'exo_player_prefs';
+class VideoPlayerPrefsNotifier extends Notifier<VideoPlayerPrefs> {
+  static const _key = 'video_player_prefs';
 
   SharedPreferences get _storage => ref.read(sharedPreferencesProvider);
 
   @override
-  ExoPlayerPrefs build() {
+  VideoPlayerPrefs build() {
     final json = _storage.getString(_key);
     if (json != null) {
       try {
-        return ExoPlayerPrefs.fromJson(json);
+        return VideoPlayerPrefs.fromJson(json);
       } catch (_) {}
     }
-    return const ExoPlayerPrefs();
+    return const VideoPlayerPrefs();
   }
 
-  void updatePrefs(ExoPlayerPrefs newPrefs) {
+  void updatePrefs(VideoPlayerPrefs newPrefs) {
     state = newPrefs;
     _saveDb();
   }
@@ -29,6 +29,7 @@ class ExoPlayerPrefsNotifier extends Notifier<ExoPlayerPrefs> {
   }
 }
 
-final exoPlayerPrefsProvider = NotifierProvider<ExoPlayerPrefsNotifier, ExoPlayerPrefs>(
-  ExoPlayerPrefsNotifier.new,
+final videoPlayerPrefsProvider =
+    NotifierProvider<VideoPlayerPrefsNotifier, VideoPlayerPrefs>(
+  VideoPlayerPrefsNotifier.new,
 );
