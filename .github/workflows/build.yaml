@@ -60,6 +60,15 @@ jobs:
           submodules: recursive
           token: ${{ secrets.SUBMODULE_PAT }}
 
+      - name: Override pubspec.yaml version
+        if: github.event.inputs.release_tag != ''
+        shell: bash
+        run: |
+          CLEAN_VER="${{ github.event.inputs.release_tag }}"
+          CLEAN_VER="${CLEAN_VER#v}" # Strip 'v' if provided for pubspec compatibility
+          echo "Overriding pubspec.yaml version to: $CLEAN_VER"
+          sed -i -e "s/^version: .*/version: $CLEAN_VER/g" pubspec.yaml
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -139,6 +148,15 @@ jobs:
           submodules: recursive
           token: ${{ secrets.SUBMODULE_PAT }}
 
+      - name: Override pubspec.yaml version
+        if: github.event.inputs.release_tag != ''
+        shell: bash
+        run: |
+          CLEAN_VER="${{ github.event.inputs.release_tag }}"
+          CLEAN_VER="${CLEAN_VER#v}"
+          echo "Overriding pubspec.yaml version to: $CLEAN_VER"
+          sed -i -e "s/^version: .*/version: $CLEAN_VER/g" pubspec.yaml
+
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: 3.35.7
@@ -206,6 +224,15 @@ jobs:
         with:
           submodules: recursive
           token: ${{ secrets.SUBMODULE_PAT }}
+
+      - name: Override pubspec.yaml version
+        if: github.event.inputs.release_tag != ''
+        shell: bash
+        run: |
+          CLEAN_VER="${{ github.event.inputs.release_tag }}"
+          CLEAN_VER="${CLEAN_VER#v}"
+          echo "Overriding pubspec.yaml version to: $CLEAN_VER"
+          sed -i -e "s/^version: .*/version: $CLEAN_VER/g" pubspec.yaml
 
       - uses: subosito/flutter-action@v2
         with:
@@ -355,7 +382,7 @@ jobs:
           1. Keep it minimal and professional.
           2. Group related changes logically (e.g., Features, Bug Fixes, Improvements, Refactoring) if applicable, or just use clean bullet points.
           3. DO NOT deviate significantly from what the commit messages say. Do not invent features or exaggerate changes.
-          4. Avoid using too many emojis (at most 1-2 subtle section icons, or none at all).
+          4. STRICT NO EMOJI POLICY: Do NOT output a single emoji whatsoever. 0 emojis.
           5. Return ONLY the Markdown text for the release notes without any introductory or concluding remarks from the AI.
 
           Commits:
