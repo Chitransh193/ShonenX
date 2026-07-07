@@ -65,7 +65,15 @@ jobs:
         shell: bash
         run: |
           CLEAN_VER="${{ github.event.inputs.release_tag }}"
-          CLEAN_VER="${CLEAN_VER#v}" # Strip 'v' if provided for pubspec compatibility
+          CLEAN_VER="${CLEAN_VER#v}" # Strip 'v' if provided
+          
+          # Extract existing build number
+          EXISTING_VER=$(grep '^version:' pubspec.yaml | awk '{print $2}')
+          if [[ "$EXISTING_VER" == *"+"* ]] && [[ "$CLEAN_VER" != *"+"* ]]; then
+            BUILD_NUM="+${EXISTING_VER#*+}"
+            CLEAN_VER="${CLEAN_VER}${BUILD_NUM}"
+          fi
+          
           echo "Overriding pubspec.yaml version to: $CLEAN_VER"
           sed -i -e "s/^version: .*/version: $CLEAN_VER/g" pubspec.yaml
 
@@ -154,6 +162,14 @@ jobs:
         run: |
           CLEAN_VER="${{ github.event.inputs.release_tag }}"
           CLEAN_VER="${CLEAN_VER#v}"
+          
+          # Extract existing build number
+          EXISTING_VER=$(grep '^version:' pubspec.yaml | awk '{print $2}')
+          if [[ "$EXISTING_VER" == *"+"* ]] && [[ "$CLEAN_VER" != *"+"* ]]; then
+            BUILD_NUM="+${EXISTING_VER#*+}"
+            CLEAN_VER="${CLEAN_VER}${BUILD_NUM}"
+          fi
+          
           echo "Overriding pubspec.yaml version to: $CLEAN_VER"
           sed -i -e "s/^version: .*/version: $CLEAN_VER/g" pubspec.yaml
 
@@ -231,6 +247,14 @@ jobs:
         run: |
           CLEAN_VER="${{ github.event.inputs.release_tag }}"
           CLEAN_VER="${CLEAN_VER#v}"
+          
+          # Extract existing build number
+          EXISTING_VER=$(grep '^version:' pubspec.yaml | awk '{print $2}')
+          if [[ "$EXISTING_VER" == *"+"* ]] && [[ "$CLEAN_VER" != *"+"* ]]; then
+            BUILD_NUM="+${EXISTING_VER#*+}"
+            CLEAN_VER="${CLEAN_VER}${BUILD_NUM}"
+          fi
+          
           echo "Overriding pubspec.yaml version to: $CLEAN_VER"
           sed -i -e "s/^version: .*/version: $CLEAN_VER/g" pubspec.yaml
 
