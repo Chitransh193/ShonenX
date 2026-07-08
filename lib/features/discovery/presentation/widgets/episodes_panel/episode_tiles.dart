@@ -9,7 +9,9 @@ import 'package:shonenx/shared/models/unified_media.dart';
 enum EpisodeViewMode {
   classic("Classic"),
   grid("Grid"),
-  box("Box");
+  box("Box"),
+  compact("Compact"),
+  cover("Cover");
 
   final String displayName;
   const EpisodeViewMode(this.displayName);
@@ -24,33 +26,86 @@ enum EpisodeImageFadeDirection {
   bottom,
 }
 
-class EpisodeClassicTile extends StatelessWidget {
+abstract class BaseEpisodeTile extends StatelessWidget {
   final UnifiedEpisode episode;
   final MediaType mediaType;
   final bool isCurrent;
   final bool isWatched;
   final bool isFiller;
   final VoidCallback onTap;
+  final List<Widget> actions;
+  final String? fallbackThumbnailUrl;
   final EpisodeImageFadeDirection imageFadeDirection;
   final List<double>? imageFadeStops;
   final double imageOpacity;
   final double imageBlurSigma;
-  final List<Widget> actions;
 
-  const EpisodeClassicTile({
+  const BaseEpisodeTile({
     super.key,
     required this.episode,
-    required this.mediaType,
+    this.mediaType = MediaType.ANIME,
     required this.isCurrent,
     required this.isWatched,
-    required this.onTap,
     this.isFiller = false,
+    required this.onTap,
+    this.actions = const [],
+    this.fallbackThumbnailUrl,
     this.imageFadeDirection = EpisodeImageFadeDirection.left,
     this.imageFadeStops,
     this.imageOpacity = 0.3,
     this.imageBlurSigma = 0,
-    this.actions = const [],
   });
+
+  String? get resolvedThumbnailUrl {
+    if (episode.thumbnailUrl != null && episode.thumbnailUrl!.isNotEmpty) {
+      return episode.thumbnailUrl;
+    }
+    if (fallbackThumbnailUrl != null && fallbackThumbnailUrl!.isNotEmpty) {
+      return fallbackThumbnailUrl;
+    }
+    return null;
+  }
+
+  String? get imageUrl => resolvedThumbnailUrl?.split('#').first;
+
+  Map<String, String> get imageHeaders => resolvedThumbnailUrl != null
+      ? decodeUrlHeaders(resolvedThumbnailUrl!)
+      : {};
+
+  void triggerMenuAction() {
+    for (final action in actions.reversed) {
+      if (action is IconButton && action.onPressed != null) {
+        action.onPressed!();
+        return;
+      }
+    }
+  }
+}
+
+class EpisodeClassicTile extends BaseEpisodeTile {
+  const EpisodeClassicTile({
+    super.key,
+    required super.episode,
+    super.mediaType = MediaType.ANIME,
+    required super.isCurrent,
+    required super.isWatched,
+    required super.onTap,
+    super.isFiller = false,
+    super.imageFadeDirection = EpisodeImageFadeDirection.left,
+    super.imageFadeStops,
+    super.imageOpacity = 0.3,
+    super.imageBlurSigma = 0,
+    super.actions = const [],
+    super.fallbackThumbnailUrl,
+  });
+
+  @override
+  String? get resolvedThumbnailUrl {
+    if (episode.thumbnailUrl != null && episode.thumbnailUrl!.isNotEmpty) {
+      return episode.thumbnailUrl;
+    }
+    return null;
+  }
 
   Alignment _begin() {
     switch (imageFadeDirection) {
@@ -106,13 +161,12 @@ class EpisodeClassicTile extends StatelessWidget {
         ? imageOpacity * 0.5
         : imageOpacity;
 
-    final imageUrl = episode.thumbnailUrl?.split('#').first;
-    final headers = decodeUrlHeaders(episode.thumbnailUrl);
-
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
+        onLongPress: triggerMenuAction,
+        onSecondaryTap: triggerMenuAction,
         child: Container(
           decoration: BoxDecoration(
             color: isCurrent
@@ -121,7 +175,7 @@ class EpisodeClassicTile extends StatelessWidget {
           ),
           child: Stack(
             children: [
-              if (imageUrl != null && imageUrl.isNotEmpty)
+              if (imageUrl != null && imageUrl!.isNotEmpty)
                 Positioned.fill(
                   child: ClipRect(
                     child: Stack(
@@ -134,8 +188,10 @@ class EpisodeClassicTile extends StatelessWidget {
                             ),
                             child: Image(
                               image: CachedNetworkImageProvider(
-                                imageUrl,
-                                headers: headers.isEmpty ? null : headers,
+                                imageUrl!,
+                                headers: imageHeaders.isEmpty
+                                    ? null
+                                    : imageHeaders,
                               ),
                               fit: BoxFit.cover,
                               alignment: Alignment.center,
@@ -299,22 +355,21 @@ class EpisodeClassicTile extends StatelessWidget {
   }
 }
 
-class EpisodeGridTile extends StatelessWidget {
-  final UnifiedEpisode episode;
-  final bool isCurrent;
-  final bool isWatched;
-  final bool isFiller;
-  final VoidCallback onTap;
-  final List<Widget> actions;
-
+class EpisodeGridTile extends BaseEpisodeTile {
   const EpisodeGridTile({
     super.key,
-    required this.episode,
-    required this.isCurrent,
-    required this.isWatched,
-    required this.onTap,
-    this.isFiller = false,
-    this.actions = const [],
+    required super.episode,
+    super.mediaType = MediaType.ANIME,
+    required super.isCurrent,
+    required super.isWatched,
+    required super.onTap,
+    super.isFiller = false,
+    super.actions = const [],
+    super.fallbackThumbnailUrl,
+    super.imageFadeDirection = EpisodeImageFadeDirection.left,
+    super.imageFadeStops,
+    super.imageOpacity = 0.3,
+    super.imageBlurSigma = 0,
   });
 
   @override
@@ -329,187 +384,217 @@ class EpisodeGridTile extends StatelessWidget {
     final isEffectivelyWatched = isWatched && !isCurrent;
     final dimColor = cs.onSurfaceVariant.withValues(alpha: 0.45);
 
-    final imageUrl = episode.thumbnailUrl?.split('#').first;
-    final headers = decodeUrlHeaders(episode.thumbnailUrl);
-
     return Material(
       color: cs.surfaceContainerLow,
       borderRadius: BorderRadius.circular(12),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
-        child: Opacity(
-          opacity: isEffectivelyWatched ? 0.6 : 1.0,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              if (imageUrl != null && imageUrl.isNotEmpty)
-                Image(
-                  image: CachedNetworkImageProvider(
-                    imageUrl,
-                    headers: headers.isEmpty ? null : headers,
-                  ),
-                  fit: BoxFit.cover,
-                )
-              else
-                ColoredBox(
-                  color: cs.surfaceContainerHighest,
-                  child: Center(
-                    child: Icon(
-                      Icons.movie_outlined,
-                      color: cs.onSurfaceVariant.withValues(alpha: 0.5),
-                      size: 24,
-                    ),
-                  ),
-                ),
-
-              if (isEffectivelyWatched) const ColoredBox(color: Colors.black26),
-
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.bottomCenter,
-                      end: Alignment.topCenter,
-                      stops: const [0.0, 0.55, 1.0],
-                      colors: [
-                        Colors.black.withValues(alpha: 0.92),
-                        Colors.black.withValues(alpha: 0.55),
-                        Colors.transparent,
-                      ],
-                    ),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(7, 14, 7, 6),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          num,
-                          style: TextStyle(
-                            color: isFiller
-                                ? Colors.amber.shade300
-                                : isCurrent
-                                ? cs.primary
-                                : Colors.white,
-                            fontSize: 22,
-                            fontWeight: FontWeight.w800,
-                            fontStyle: FontStyle.italic,
-                            height: 1.0,
-                            shadows: const [
-                              Shadow(blurRadius: 4, color: Colors.black),
-                            ],
-                          ),
+        onLongPress: triggerMenuAction,
+        onSecondaryTap: triggerMenuAction,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Opacity(
+              opacity: isEffectivelyWatched ? 0.6 : 1.0,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  if (imageUrl != null && imageUrl!.isNotEmpty)
+                    Image(
+                      image: CachedNetworkImageProvider(
+                        imageUrl!,
+                        headers: imageHeaders.isEmpty ? null : imageHeaders,
+                      ),
+                      fit: BoxFit.cover,
+                    )
+                  else
+                    ColoredBox(
+                      color: cs.surfaceContainerHighest,
+                      child: Center(
+                        child: Icon(
+                          Icons.movie_outlined,
+                          color: cs.onSurfaceVariant.withValues(alpha: 0.5),
+                          size: 24,
                         ),
-                        if (episode.title != null &&
-                            episode.title!.trim().isNotEmpty) ...[
-                          const SizedBox(height: 2),
-                          Text(
-                            episode.title!,
-                            style: const TextStyle(
-                              color: Colors.white70,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w500,
-                              height: 1.2,
+                      ),
+                    ),
+
+                  if (isEffectivelyWatched)
+                    const ColoredBox(color: Colors.black26),
+
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.bottomCenter,
+                          end: Alignment.topCenter,
+                          stops: const [0.0, 0.55, 1.0],
+                          colors: [
+                            Colors.black.withValues(alpha: 0.92),
+                            Colors.black.withValues(alpha: 0.55),
+                            Colors.transparent,
+                          ],
+                        ),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(7, 14, 7, 6),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              num,
+                              style: TextStyle(
+                                color: isFiller
+                                    ? Colors.amber.shade300
+                                    : isCurrent
+                                    ? cs.primary
+                                    : Colors.white,
+                                fontSize: 22,
+                                fontWeight: FontWeight.w800,
+                                fontStyle: FontStyle.italic,
+                                height: 1.0,
+                                shadows: const [
+                                  Shadow(blurRadius: 4, color: Colors.black),
+                                ],
+                              ),
                             ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ],
-                      ],
+                            if (episode.title != null &&
+                                episode.title!.trim().isNotEmpty) ...[
+                              const SizedBox(height: 2),
+                              Text(
+                                episode.title!,
+                                style: const TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w500,
+                                  height: 1.2,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  if (isFiller)
+                    Positioned(
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      child: Container(height: 3, color: Colors.amber.shade600),
+                    ),
+
+                  if (isCurrent)
+                    Positioned(
+                      top: 6,
+                      left: 6,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: cs.primary,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.play_arrow_rounded,
+                              color: cs.onPrimary,
+                              size: 8,
+                            ),
+                            const SizedBox(width: 2),
+                            Text(
+                              'NOW',
+                              style: TextStyle(
+                                color: cs.onPrimary,
+                                fontSize: 9,
+                                fontWeight: FontWeight.w800,
+                                height: 1,
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                  if (isEffectivelyWatched)
+                    Positioned(
+                      top: 6,
+                      left: 6,
+                      child: Icon(
+                        Icons.check_circle_rounded,
+                        color: dimColor,
+                        size: 14,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+
+            if (actions.isNotEmpty)
+              Positioned(
+                top: 6,
+                right: 6,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 4,
+                    vertical: 1,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.75),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.15),
+                    ),
+                  ),
+                  child: Theme(
+                    data: theme.copyWith(
+                      iconTheme: const IconThemeData(
+                        color: Colors.white,
+                        size: 18,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: actions,
                     ),
                   ),
                 ),
               ),
-
-              if (isFiller)
-                Positioned(
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  child: Container(height: 3, color: Colors.amber.shade600),
-                ),
-
-              if (isCurrent)
-                Positioned(
-                  top: 6,
-                  left: 6,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 6,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: cs.primary,
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.play_arrow_rounded,
-                          color: cs.onPrimary,
-                          size: 8,
-                        ),
-                        const SizedBox(width: 2),
-                        Text(
-                          'NOW',
-                          style: TextStyle(
-                            color: cs.onPrimary,
-                            fontSize: 9,
-                            fontWeight: FontWeight.w800,
-                            height: 1,
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-
-              if (isEffectivelyWatched)
-                Positioned(
-                  top: 6,
-                  left: 6,
-                  child: Icon(
-                    Icons.check_circle_rounded,
-                    color: dimColor,
-                    size: 14,
-                  ),
-                ),
-
-              if (actions.isNotEmpty)
-                Positioned(
-                  top: 2,
-                  right: 2,
-                  child: Row(mainAxisSize: MainAxisSize.min, children: actions),
-                ),
-            ],
-          ),
+          ],
         ),
       ),
     );
   }
 }
 
-class EpisodeBoxTile extends StatelessWidget {
-  final UnifiedEpisode episode;
-  final bool isCurrent;
-  final bool isWatched;
-  final bool isFiller;
-  final VoidCallback onTap;
-
+class EpisodeBoxTile extends BaseEpisodeTile {
   const EpisodeBoxTile({
     super.key,
-    required this.episode,
-    required this.isCurrent,
-    required this.isWatched,
-    required this.onTap,
-    this.isFiller = false,
+    required super.episode,
+    super.mediaType = MediaType.ANIME,
+    required super.isCurrent,
+    required super.isWatched,
+    required super.onTap,
+    super.isFiller = false,
+    super.actions = const [],
+    super.fallbackThumbnailUrl,
+    super.imageFadeDirection = EpisodeImageFadeDirection.left,
+    super.imageFadeStops,
+    super.imageOpacity = 0.3,
+    super.imageBlurSigma = 0,
   });
 
   @override
@@ -540,6 +625,8 @@ class EpisodeBoxTile extends StatelessWidget {
       borderRadius: BorderRadius.circular(8),
       child: InkWell(
         onTap: onTap,
+        onLongPress: triggerMenuAction,
+        onSecondaryTap: triggerMenuAction,
         borderRadius: BorderRadius.circular(8),
         child: Stack(
           children: [
@@ -565,6 +652,365 @@ class EpisodeBoxTile extends StatelessWidget {
                   decoration: BoxDecoration(
                     color: Colors.amber.shade600,
                     shape: BoxShape.circle,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class EpisodeCompactTile extends BaseEpisodeTile {
+  const EpisodeCompactTile({
+    super.key,
+    required super.episode,
+    super.mediaType = MediaType.ANIME,
+    required super.isCurrent,
+    required super.isWatched,
+    required super.onTap,
+    super.isFiller = false,
+    super.actions = const [],
+    super.fallbackThumbnailUrl,
+    super.imageFadeDirection = EpisodeImageFadeDirection.left,
+    super.imageFadeStops,
+    super.imageOpacity = 0.3,
+    super.imageBlurSigma = 0,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final textTheme = theme.textTheme;
+
+    final epNumText = episode.number % 1 == 0
+        ? episode.number.toInt().toString()
+        : episode.number.toString();
+    final epLabel = mediaType == MediaType.ANIME
+        ? 'Ep $epNumText'
+        : 'Ch $epNumText';
+    final title = episode.title ?? epLabel;
+
+    final isEffectivelyWatched = isWatched && !isCurrent;
+    final dimColor = cs.onSurfaceVariant.withValues(alpha: 0.55);
+
+    return InkWell(
+      onTap: onTap,
+      onLongPress: triggerMenuAction,
+      onSecondaryTap: triggerMenuAction,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        child: Row(
+          children: [
+            if (isCurrent)
+              Container(
+                width: 3,
+                height: 18,
+                margin: const EdgeInsets.only(right: 10),
+                decoration: BoxDecoration(
+                  color: cs.primary,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            SizedBox(
+              width: 38,
+              child: Text(
+                epNumText,
+                style: textTheme.titleMedium?.copyWith(
+                  color: isCurrent
+                      ? cs.primary
+                      : isEffectivelyWatched
+                      ? dimColor
+                      : cs.onSurface,
+                  fontWeight: isCurrent ? FontWeight.w800 : FontWeight.w700,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: textTheme.bodyMedium?.copyWith(
+                      fontWeight: isCurrent ? FontWeight.w700 : FontWeight.w600,
+                      color: isCurrent
+                          ? cs.primary
+                          : isEffectivelyWatched
+                          ? dimColor
+                          : cs.onSurface,
+                      height: 1.15,
+                    ),
+                  ),
+                  if (episode.airDate != null || isFiller) ...[
+                    const SizedBox(height: 3),
+                    Row(
+                      children: [
+                        if (isFiller) ...[
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 1,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.amber.shade600.withValues(
+                                alpha: 0.2,
+                              ),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              'FILLER',
+                              style: TextStyle(
+                                fontSize: 9,
+                                fontWeight: FontWeight.w800,
+                                color: Colors.amber.shade700,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                        ],
+                        if (episode.airDate != null)
+                          Text(
+                            episode.airDate!,
+                            style: textTheme.labelSmall?.copyWith(
+                              color: dimColor,
+                              fontSize: 11,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            if (isEffectivelyWatched) ...[
+              const SizedBox(width: 8),
+              Icon(Icons.check_circle_rounded, size: 18, color: dimColor),
+            ] else if (isCurrent) ...[
+              const SizedBox(width: 8),
+              Icon(Icons.play_circle_fill_rounded, size: 20, color: cs.primary),
+            ],
+            if (actions.isNotEmpty) ...[
+              const SizedBox(width: 6),
+              Row(mainAxisSize: MainAxisSize.min, children: actions),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class EpisodeCoverTile extends BaseEpisodeTile {
+  const EpisodeCoverTile({
+    super.key,
+    required super.episode,
+    super.mediaType = MediaType.ANIME,
+    required super.isCurrent,
+    required super.isWatched,
+    required super.onTap,
+    super.isFiller = false,
+    super.actions = const [],
+    super.fallbackThumbnailUrl,
+    super.imageFadeDirection = EpisodeImageFadeDirection.left,
+    super.imageFadeStops,
+    super.imageOpacity = 0.3,
+    super.imageBlurSigma = 0,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final textTheme = theme.textTheme;
+
+    final epNumText = episode.number % 1 == 0
+        ? episode.number.toInt().toString()
+        : episode.number.toString();
+    final epLabel = mediaType == MediaType.ANIME
+        ? 'Episode $epNumText'
+        : 'Chapter $epNumText';
+    final title = episode.title ?? epLabel;
+
+    final isEffectivelyWatched = isWatched && !isCurrent;
+
+    return Material(
+      color: cs.surfaceContainerHigh,
+      borderRadius: BorderRadius.circular(12),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        onLongPress: triggerMenuAction,
+        onSecondaryTap: triggerMenuAction,
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: Opacity(
+                opacity: isEffectivelyWatched ? 0.6 : 1.0,
+                child:
+                    resolvedThumbnailUrl != null &&
+                        resolvedThumbnailUrl!.isNotEmpty
+                    ? CachedNetworkImage(
+                        imageUrl: resolvedThumbnailUrl!,
+                        fit: BoxFit.cover,
+                        httpHeaders: imageHeaders.isEmpty ? null : imageHeaders,
+                        errorWidget: (_, __, ___) => Container(
+                          color: cs.surfaceContainerHighest,
+                          alignment: Alignment.center,
+                          child: Icon(
+                            Icons.tv_rounded,
+                            size: 32,
+                            color: cs.onSurfaceVariant.withValues(alpha: 0.3),
+                          ),
+                        ),
+                      )
+                    : Container(
+                        color: cs.surfaceContainerHighest,
+                        alignment: Alignment.center,
+                        child: Icon(
+                          Icons.tv_rounded,
+                          size: 32,
+                          color: cs.onSurfaceVariant.withValues(alpha: 0.3),
+                        ),
+                      ),
+              ),
+            ),
+            if (isEffectivelyWatched)
+              const Positioned.fill(child: ColoredBox(color: Colors.black26)),
+            Positioned.fill(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.bottomCenter,
+                    end: Alignment.topCenter,
+                    stops: const [0.0, 0.6, 1.0],
+                    colors: [
+                      Colors.black.withValues(alpha: 0.90),
+                      Colors.black.withValues(alpha: 0.45),
+                      Colors.transparent,
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              left: 10,
+              right: 10,
+              bottom: 10,
+              child: Row(
+                children: [
+                  Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      color: isCurrent
+                          ? cs.primary
+                          : Colors.white.withValues(alpha: 0.25),
+                      shape: BoxShape.circle,
+                    ),
+                    alignment: Alignment.center,
+                    child: Icon(
+                      isCurrent
+                          ? Icons.play_arrow_rounded
+                          : isEffectivelyWatched
+                          ? Icons.check_rounded
+                          : Icons.play_arrow_rounded,
+                      color: isCurrent ? cs.onPrimary : Colors.white,
+                      size: 18,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(
+                          children: [
+                            Text(
+                              epLabel,
+                              style: textTheme.labelSmall?.copyWith(
+                                color: isCurrent ? cs.primary : Colors.white70,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 10,
+                              ),
+                            ),
+                            if (isFiller) ...[
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 5,
+                                  vertical: 1,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.amber.shade600,
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: const Text(
+                                  'FILLER',
+                                  style: TextStyle(
+                                    fontSize: 8,
+                                    fontWeight: FontWeight.w800,
+                                    color: Colors.black,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: textTheme.titleSmall?.copyWith(
+                            color: isEffectivelyWatched
+                                ? Colors.white60
+                                : Colors.white,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (actions.isNotEmpty)
+              Positioned(
+                top: 6,
+                right: 6,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 4,
+                    vertical: 1,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.75),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.15),
+                    ),
+                  ),
+                  child: Theme(
+                    data: theme.copyWith(
+                      iconTheme: const IconThemeData(
+                        color: Colors.white,
+                        size: 18,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: actions,
+                    ),
                   ),
                 ),
               ),

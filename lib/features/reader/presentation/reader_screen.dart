@@ -7,6 +7,7 @@ import 'package:shonenx/shared/providers/theme_prefs_provider.dart';
 
 import 'package:shonenx/features/discovery/providers/episodes_provider.dart';
 import 'package:shonenx/features/discovery/providers/matched_media_provider.dart';
+import 'package:shonenx/features/discovery/providers/media_preference_provider.dart';
 import 'package:shonenx/features/history/domain/models/read_history_entry.dart';
 import 'package:shonenx/features/history/providers/read_history_provider.dart';
 import 'package:shonenx/features/reader/domain/reader_mode.dart';
@@ -45,11 +46,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   final ItemPositionsListener _itemPositionsListener =
       ItemPositionsListener.create();
   late final PageController _pageController;
-  final TransformationController _transformationController =
-      TransformationController();
   late final MatchArgs _matchArgs;
-
-  double _currentScale = 1.0;
 
   @override
   void initState() {
@@ -72,7 +69,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     _focusNode.dispose();
     _itemPositionsListener.itemPositions.removeListener(_onWebtoonScroll);
     _pageController.dispose();
-    _transformationController.dispose();
     _disableImmersiveMode();
     super.dispose();
   }
@@ -136,9 +132,31 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       ..banner = widget.mode.media.banner
       ..positionPage = savedPageNumber
       ..totalPages = _totalPages
+      ..sourceId = widget.mode.sourceInfo.id
+      ..sourceName = widget.mode.sourceInfo.name
+      ..providerId = widget.mode.media.providerId != widget.mode.media.id
+          ? widget.mode.media.providerId
+          : null
       ..lastUpdated = DateTime.now();
 
     ref.read(readHistoryRepositoryProvider).saveProgress(entry);
+
+    try {
+      final mediaTitle = widget.mode.media.title.availableTitle;
+      if (mediaTitle.isNotEmpty) {
+        ref
+            .read(
+              mediaPreferenceProvider(
+                MatchArgs(mediaTitle: mediaTitle, type: widget.mode.media.type),
+              ).notifier,
+            )
+            .saveWatchPreference(
+              sourceInfo: widget.mode.sourceInfo,
+              mediaId: widget.mode.media.providerId ?? widget.mode.media.id,
+              mediaTitle: mediaTitle,
+            );
+      }
+    } catch (_) {}
     ref
         .read(syncEngineProvider)
         .processReading(
@@ -259,27 +277,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     }
   }
 
-  void _toggleZoom(TapDownDetails details) {
-    final tapPosition = details.localPosition;
-    final targetScale = (_currentScale < 2.0) ? 2.0 : 1.0;
-    _zoomAtPoint(tapPosition, targetScale);
-  }
-
-  void _zoomOnScroll(double scrollDelta, Offset pointerPosition) {
-    final zoomFactor = (scrollDelta < 0) ? 1.1 : 0.9;
-    final newScale = (_currentScale * zoomFactor).clamp(1.0, 4.0);
-    _zoomAtPoint(pointerPosition, newScale);
-  }
-
-  void _zoomAtPoint(Offset focalPoint, double targetScale) {
-    _currentScale = targetScale;
-    final scenePoint = _transformationController.toScene(focalPoint);
-    _transformationController.value = Matrix4.identity()
-      ..translate(focalPoint.dx, focalPoint.dy)
-      ..scale(_currentScale)
-      ..translate(-scenePoint.dx, -scenePoint.dy);
-  }
-
   @override
   Widget build(BuildContext context) {
     final readerStateAsync = ref.watch(readerProvider(widget.mode));
@@ -323,11 +320,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                   itemScrollController: _itemScrollController,
                   itemPositionsListener: _itemPositionsListener,
                   pageController: _pageController,
-                  transformationController: _transformationController,
                   onTotalPagesUpdated: _updateTotalPagesIfNeeded,
                   onPageChanged: _onPageChanged,
-                  onZoomOnScroll: _zoomOnScroll,
-                  onToggleZoom: _toggleZoom,
                   onRetry: () =>
                       ref.read(readerProvider(widget.mode).notifier).retry(),
                 ),
