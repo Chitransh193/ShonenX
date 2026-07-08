@@ -7,6 +7,7 @@ import 'package:shonenx/features/history/domain/models/read_history_entry.dart';
 import 'package:shonenx/features/reader/domain/reader_mode.dart';
 import 'package:shonenx/shared/models/unified_episode.dart';
 import 'package:shonenx/shared/models/unified_media.dart';
+import 'package:shonenx/source_engine/source_registry.dart';
 
 final continueReadingResolverProvider = Provider(
   (ref) => ContinueReadingResolver(ref),
@@ -30,13 +31,28 @@ class ContinueReadingResolver {
       ).future,
     );
 
-    final sourceInfo = prefState.sourceInfo;
+    final availableSourcesInfo = await ref.read(
+      availableMangaSourcesProvider.future,
+    );
+
+    final sourceInfo =
+        (entry.sourceId != null
+            ? availableSourcesInfo.firstWhereOrNull(
+                (s) => s.id == entry.sourceId,
+              )
+            : null) ??
+        prefState.sourceInfo;
+
+    final rawOverride = prefState.manualOverrideId ?? entry.providerId;
+    final overrideId = (rawOverride != null && rawOverride != entry.mangaId)
+        ? rawOverride
+        : null;
 
     UnifiedEpisode? chapter;
 
-    if (prefState.manualOverrideId != null) {
+    if (overrideId != null) {
       final args = (
-        providerId: prefState.manualOverrideId!,
+        providerId: overrideId,
         sourceId: sourceInfo.id,
         type: MediaType.MANGA,
       );
@@ -69,6 +85,9 @@ class ContinueReadingResolver {
           idMal: entry.mangaIdMal,
           cover: entry.cover,
           banner: entry.banner,
+          sourceId: null,
+          sourceName: null,
+          providerId: overrideId,
           type: MediaType.MANGA,
           title: MediaTitle(english: entry.mangaTitle),
         ),
