@@ -2,6 +2,7 @@ import 'dart:ui';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:shonenx/core/utils/formatting.dart';
 import 'package:shonenx/core/utils/image_headers.dart';
 import 'package:shonenx/shared/models/unified_episode.dart';
 import 'package:shonenx/shared/models/unified_media.dart';
@@ -71,6 +72,9 @@ abstract class BaseEpisodeTile extends StatelessWidget {
   Map<String, String> get imageHeaders => resolvedThumbnailUrl != null
       ? decodeUrlHeaders(resolvedThumbnailUrl!)
       : {};
+
+  String? get displayDate =>
+      formatDateString(episode.uploadDate ?? episode.airDate);
 
   void triggerMenuAction() {
     for (final action in actions.reversed) {
@@ -142,9 +146,7 @@ class EpisodeClassicTile extends BaseEpisodeTile {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final num = episode.number % 1 == 0
-        ? episode.number.toInt().toString()
-        : episode.number.toString();
+    final num = formatEpisodeNumber(episode.number);
 
     final dimColor = theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.4);
     final isEffectivelyWatched = isWatched && !isCurrent;
@@ -340,6 +342,51 @@ class EpisodeClassicTile extends BaseEpisodeTile {
                                 ],
                               ],
                             ),
+                            if (displayDate != null &&
+                                displayDate!.isNotEmpty) ...[
+                              const SizedBox(height: 3),
+                              Row(
+                                children: [
+                                  Icon(
+                                    Icons.access_time_rounded,
+                                    size: 12,
+                                    color: dimColor,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    displayDate!,
+                                    style: theme.textTheme.labelSmall?.copyWith(
+                                      color: dimColor,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                  if (episode.scanlator != null &&
+                                      episode.scanlator!.isNotEmpty) ...[
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      '•',
+                                      style: TextStyle(
+                                        color: dimColor,
+                                        fontSize: 10,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Flexible(
+                                      child: Text(
+                                        episode.scanlator!,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: theme.textTheme.labelSmall
+                                            ?.copyWith(
+                                              color: dimColor,
+                                              fontSize: 11,
+                                            ),
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ],
                           ],
                         ),
                       ),
@@ -377,9 +424,7 @@ class EpisodeGridTile extends BaseEpisodeTile {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
-    final num = episode.number % 1 == 0
-        ? episode.number.toInt().toString()
-        : episode.number.toString();
+    final num = formatEpisodeNumber(episode.number);
 
     final isEffectivelyWatched = isWatched && !isCurrent;
     final dimColor = cs.onSurfaceVariant.withValues(alpha: 0.45);
@@ -447,7 +492,7 @@ class EpisodeGridTile extends BaseEpisodeTile {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Text(
-                              num,
+                              num ?? '',
                               style: TextStyle(
                                 color: isFiller
                                     ? Colors.amber.shade300
@@ -473,6 +518,20 @@ class EpisodeGridTile extends BaseEpisodeTile {
                                   fontSize: 11,
                                   fontWeight: FontWeight.w500,
                                   height: 1.2,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                            if (displayDate != null &&
+                                displayDate!.isNotEmpty) ...[
+                              const SizedBox(height: 2),
+                              Text(
+                                displayDate!,
+                                style: const TextStyle(
+                                  color: Colors.white60,
+                                  fontSize: 9.5,
+                                  fontWeight: FontWeight.w600,
                                 ),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
@@ -602,9 +661,7 @@ class EpisodeBoxTile extends BaseEpisodeTile {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
-    final num = episode.number % 1 == 0
-        ? episode.number.toInt().toString()
-        : episode.number.toString();
+    final num = formatEpisodeNumber(episode.number);
 
     final isEffectivelyWatched = isWatched && !isCurrent;
 
@@ -633,12 +690,37 @@ class EpisodeBoxTile extends BaseEpisodeTile {
             Positioned.fill(
               child: Container(
                 alignment: Alignment.center,
-                child: Text(
-                  num,
-                  style: theme.textTheme.labelMedium?.copyWith(
-                    color: fgColor,
-                    fontWeight: isCurrent ? FontWeight.w800 : FontWeight.w600,
-                  ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      num ?? '',
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: fgColor,
+                        fontWeight: isCurrent
+                            ? FontWeight.w800
+                            : FontWeight.w600,
+                      ),
+                    ),
+                    if (displayDate != null && displayDate!.isNotEmpty) ...[
+                      const SizedBox(height: 1),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 2),
+                        child: Text(
+                          displayDate!,
+                          style: TextStyle(
+                            color: fgColor.withValues(alpha: 0.75),
+                            fontSize: 8,
+                            fontWeight: FontWeight.w500,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
             ),
@@ -749,7 +831,8 @@ class EpisodeCompactTile extends BaseEpisodeTile {
                       height: 1.15,
                     ),
                   ),
-                  if (episode.airDate != null || isFiller) ...[
+                  if ((displayDate != null && displayDate!.isNotEmpty) ||
+                      isFiller) ...[
                     const SizedBox(height: 3),
                     Row(
                       children: [
@@ -776,9 +859,9 @@ class EpisodeCompactTile extends BaseEpisodeTile {
                           ),
                           const SizedBox(width: 6),
                         ],
-                        if (episode.airDate != null)
+                        if (displayDate != null && displayDate!.isNotEmpty)
                           Text(
-                            episode.airDate!,
+                            displayDate!,
                             style: textTheme.labelSmall?.copyWith(
                               color: dimColor,
                               fontSize: 11,
@@ -978,6 +1061,19 @@ class EpisodeCoverTile extends BaseEpisodeTile {
                             fontSize: 12,
                           ),
                         ),
+                        if (displayDate != null && displayDate!.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            displayDate!,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white60,
+                              fontWeight: FontWeight.w500,
+                              fontSize: 10,
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),

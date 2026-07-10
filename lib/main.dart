@@ -1,4 +1,5 @@
-import 'package:dynamic_system_colors/dynamic_system_colors.dart';
+import 'dart:ui';
+import 'package:dynamic_color/dynamic_color.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shonenx/app_init.dart';
@@ -71,6 +72,15 @@ class ShonenXApp extends ConsumerWidget {
           themeMode: themePrefs.themeMode,
           theme: lightTheme,
           darkTheme: darkTheme,
+          scrollBehavior: const MaterialScrollBehavior().copyWith(
+            dragDevices: {
+              PointerDeviceKind.touch,
+              PointerDeviceKind.mouse,
+              PointerDeviceKind.trackpad,
+              PointerDeviceKind.stylus,
+              PointerDeviceKind.unknown,
+            },
+          ),
           routerConfig: ref.watch(routerProvider),
           builder: (context, child) {
             if (child == null) return const SizedBox.shrink();
