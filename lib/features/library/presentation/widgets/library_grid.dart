@@ -9,6 +9,7 @@ import 'package:shonenx/features/library/providers/local_library_provider.dart';
 import 'package:shonenx/features/tracking/domain/models/tracker_type.dart';
 import 'package:shonenx/features/tracking/providers/tracker_profile_provider.dart';
 import 'package:shonenx/features/tracking/providers/tracking_prefs_provider.dart';
+import 'package:shonenx/core/utils/responsive.dart';
 
 class LibraryGridWidget extends ConsumerWidget {
   const LibraryGridWidget({super.key});
@@ -87,9 +88,8 @@ class LibraryGridWidget extends ConsumerWidget {
               padding: const EdgeInsets.all(10.0),
               child: GridView.builder(
                 padding: const EdgeInsets.only(bottom: 200),
-                gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
-                  maxCrossAxisExtent: cardStyle.layout.width + 10,
-                  mainAxisExtent: cardStyle.layout.height,
+                gridDelegate: SliverGridDelegateWithMinCrossAxisExtent(
+                  minCrossAxisExtent: cardStyle.layout.width,
                   childAspectRatio: cardStyle.layout.aspectRatio,
                   mainAxisSpacing: 10,
                   crossAxisSpacing: 10,

@@ -17,10 +17,12 @@ class MangaSourceAdapter extends BaseSourceAdapter implements MangaSource {
     final methodLog = log.child('getChapters');
     try {
       final parts = mangaId.split('|');
-      methodLog.i('url=${parts[0]} title=${parts.length > 1 ? parts[1] : ''}');
+      final url = parts[0];
+      final title = parts.length > 1 ? parts[1] : '';
+      methodLog.i('url=$url title=$title');
 
       final detail = await source.methods.getDetail(
-        bridge.DMedia(url: parts[0], title: parts[1]),
+        bridge.DMedia(url: url, title: title),
       );
 
       methodLog.d('chapters=${detail.episodes?.length ?? 0}');
@@ -32,6 +34,7 @@ class MangaSourceAdapter extends BaseSourceAdapter implements MangaSource {
               title: e.name,
               number: double.tryParse(e.episodeNumber) ?? 0.0,
               scanlator: e.scanlator,
+              uploadDate: e.dateUpload,
             ),
           )
           .toList();
@@ -47,9 +50,11 @@ class MangaSourceAdapter extends BaseSourceAdapter implements MangaSource {
     try {
       methodLog.i('chapterId=$chapterId');
       final parts = chapterId.split('|');
+      final url = parts[0];
+      final epNum = parts.length > 1 ? parts[1] : '1';
 
       final pages = await source.methods.getPageList(
-        bridge.DEpisode(url: parts[0], episodeNumber: parts[1]),
+        bridge.DEpisode(url: url, episodeNumber: epNum),
       );
 
       methodLog.d('pages=${pages.length}');
