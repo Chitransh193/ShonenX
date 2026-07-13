@@ -7,6 +7,8 @@ import 'package:shonenx/core/theme/exclusive_schemes.dart';
 import 'package:shonenx/features/settings/presentation/widgets/settings_ui_components.dart';
 import 'package:shonenx/shared/widgets/app_bottom_sheet.dart';
 import 'package:shonenx/shared/widgets/app_scaffold.dart';
+import 'package:shonenx/features/settings/presentation/widgets/preset_gallery_sheet.dart';
+import 'package:shonenx/shared/providers/preset_provider.dart';
 
 class ThemeSettingsScreen extends ConsumerWidget {
   const ThemeSettingsScreen({super.key});
@@ -16,12 +18,14 @@ class ThemeSettingsScreen extends ConsumerWidget {
     final themePrefs = ref.watch(themePrefsProvider);
     final cs = Theme.of(context).colorScheme;
     final notifier = ref.read(themePrefsProvider.notifier);
-    final isDark = themePrefs.themeMode == ThemeMode.dark;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return AppScaffold(
       title: 'Appearance',
       body: ListView(
+        padding: const EdgeInsets.only(bottom: 50),
         children: [
+          _buildPresetGalleryBanner(context, ref),
           SettingsSection(
             title: 'Display & Color',
             children: [
@@ -92,7 +96,7 @@ class ThemeSettingsScreen extends ConsumerWidget {
                   (p) => p.copyWith(blendLevel: v.toInt()),
                 ),
               ),
-              if (themePrefs.customBackgroundImagePath == null)
+              if (themePrefs.customBackgroundImagePath == null) ...[
                 SettingsSwitchTile(
                   icon: Icons.gradient_outlined,
                   title: 'Gradient Surfaces',
@@ -106,6 +110,84 @@ class ThemeSettingsScreen extends ConsumerWidget {
                           (p) => p.copyWith(useGradients: v),
                         ),
                 ),
+                if (themePrefs.useGradients && !themePrefs.useAmoled) ...[
+                  SettingsDropdownTile<BackgroundGradientStyle>(
+                    icon: Icons.auto_awesome_outlined,
+                    title: 'Gradient Shape',
+                    value: themePrefs.gradientStyle,
+                    items: BackgroundGradientStyle.values
+                        .map(
+                          (s) => DropdownMenuItem(
+                            value: s,
+                            child: Text(s.displayName),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (v) {
+                      if (v != null) {
+                        notifier.updateTheme(
+                          (p) => p.copyWith(gradientStyle: v),
+                        );
+                      }
+                    },
+                  ),
+                  if (themePrefs.gradientStyle ==
+                      BackgroundGradientStyle.linear)
+                    SettingsDropdownTile<BackgroundGradientDirection>(
+                      icon: Icons.explore_outlined,
+                      title: 'Gradient Angle',
+                      value: themePrefs.gradientDirection,
+                      items: BackgroundGradientDirection.values
+                          .map(
+                            (d) => DropdownMenuItem(
+                              value: d,
+                              child: Text(d.displayName),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (v) {
+                        if (v != null) {
+                          notifier.updateTheme(
+                            (p) => p.copyWith(gradientDirection: v),
+                          );
+                        }
+                      },
+                    ),
+                  SettingsDropdownTile<BackgroundGradientColorPair>(
+                    icon: Icons.color_lens_outlined,
+                    title: 'Gradient Palette',
+                    value: themePrefs.gradientColorPair,
+                    items: BackgroundGradientColorPair.values
+                        .map(
+                          (c) => DropdownMenuItem(
+                            value: c,
+                            child: Text(c.displayName),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (v) {
+                      if (v != null) {
+                        notifier.updateTheme(
+                          (p) => p.copyWith(gradientColorPair: v),
+                        );
+                      }
+                    },
+                  ),
+                  SettingsSliderTile(
+                    icon: Icons.tune_rounded,
+                    title: 'Gradient Intensity',
+                    subtitle: 'Color vibrancy over background',
+                    value: themePrefs.gradientIntensity,
+                    min: 0.05,
+                    max: 1.0,
+                    divisions: 19,
+                    label: '${(themePrefs.gradientIntensity * 100).toInt()}%',
+                    onChanged: (v) => notifier.updateTheme(
+                      (p) => p.copyWith(gradientIntensity: v),
+                    ),
+                  ),
+                ],
+              ],
             ],
           ),
           SettingsSection(
@@ -292,8 +374,59 @@ class ThemeSettingsScreen extends ConsumerWidget {
                 ),
               ],
             ),
+          SettingsSection(
+            title: 'Theme Style',
+            children: [
+              SettingsActionTile(
+                icon: Icons.palette_outlined,
+                title: 'Color Style',
+                subtitle: themePrefs.themeVariant.displayName,
+                onTap: () => _openThemeVariantPicker(
+                  context,
+                  themePrefs.themeVariant,
+                  (variant) => notifier.updateTheme(
+                    (p) => p.copyWith(themeVariant: variant),
+                  ),
+                  isDark,
+                ),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _VariantSwatchPreview(
+                      variant: themePrefs.themeVariant,
+                      isDark: isDark,
+                    ),
+                    const SizedBox(width: 8),
+                    Icon(
+                      Icons.chevron_right_rounded,
+                      color: cs.onSurfaceVariant.withValues(alpha: 0.5),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ],
       ),
+    );
+  }
+
+  Widget _buildPresetGalleryBanner(BuildContext context, WidgetRef ref) {
+    final presetState = ref.watch(presetProvider);
+    final active = presetState.activePreset;
+
+    return SettingsSection(
+      title: 'Presets',
+      children: [
+        SettingsNavTile(
+          icon: Icons.auto_awesome_outlined,
+          title: 'Theme Presets & Gallery',
+          subtitle: active != null
+              ? 'Active: ${active.name} (${active.cardStyle.displayName})'
+              : 'Explore themes & import/export JSON',
+          onTap: () => PresetGallerySheet.show(context),
+        ),
+      ],
     );
   }
 
@@ -331,6 +464,26 @@ class ThemeSettingsScreen extends ConsumerWidget {
         isDark: isDark,
         onSelected: (key) {
           onSelected(key);
+          Navigator.pop(context);
+        },
+      ),
+    );
+  }
+
+  void _openThemeVariantPicker(
+    BuildContext context,
+    FlexSchemeVariant currentVariant,
+    void Function(FlexSchemeVariant) onSelected,
+    bool isDark,
+  ) {
+    AppBottomSheet.show(
+      context: context,
+      title: 'Theme Style',
+      child: _ThemeVariantPicker(
+        currentVariant: currentVariant,
+        isDark: isDark,
+        onSelected: (variant) {
+          onSelected(variant);
           Navigator.pop(context);
         },
       ),
@@ -407,6 +560,7 @@ class _SchemePicker extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final cs = Theme.of(context).colorScheme;
+    final activeIsDark = Theme.of(context).brightness == Brightness.dark;
     final prefs = ref.watch(themePrefsProvider);
     final schemes = FlexColor.schemes.keys
         .where((s) => s != FlexScheme.custom)
@@ -418,8 +572,10 @@ class _SchemePicker extends ConsumerWidget {
       itemBuilder: (context, index) {
         final scheme = schemes[index];
         final data = FlexColor.schemes[scheme]!;
-        final primary = isDark ? data.dark.primary : data.light.primary;
-        final secondary = isDark ? data.dark.secondary : data.light.secondary;
+        final primary = activeIsDark ? data.dark.primary : data.light.primary;
+        final secondary = activeIsDark
+            ? data.dark.secondary
+            : data.light.secondary;
         final isSelected = currentScheme == scheme;
 
         return Padding(
@@ -492,6 +648,7 @@ class _ExclusiveSchemePicker extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final cs = Theme.of(context).colorScheme;
+    final activeIsDark = Theme.of(context).brightness == Brightness.dark;
     final prefs = ref.watch(themePrefsProvider);
     final entries = exclusiveSchemes.entries.toList();
 
@@ -501,7 +658,7 @@ class _ExclusiveSchemePicker extends ConsumerWidget {
       itemBuilder: (context, index) {
         final key = entries[index].key;
         final data = entries[index].value;
-        final colors = isDark ? data.dark : data.light;
+        final colors = activeIsDark ? data.dark : data.light;
         final isSelected = currentKey == key;
 
         return Padding(
@@ -563,6 +720,109 @@ class _ExclusiveSchemePicker extends ConsumerWidget {
               onTap: () => onSelected(key),
             ),
           ),
+        );
+      },
+    );
+  }
+}
+
+class _VariantSwatchPreview extends ConsumerWidget {
+  const _VariantSwatchPreview({required this.variant, required this.isDark});
+  final FlexSchemeVariant variant;
+  final bool isDark;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final activeIsDark = Theme.of(context).brightness == Brightness.dark;
+    final prefs = ref.watch(themePrefsProvider);
+    final Color primaryKey;
+    final Color secondaryKey;
+    final Color tertiaryKey;
+
+    if (prefs.useDynamic) {
+      final activeCs = Theme.of(context).colorScheme;
+      primaryKey = activeCs.primary;
+      secondaryKey = activeCs.secondary;
+      tertiaryKey = activeCs.tertiary;
+    } else {
+      final exclusive = prefs.exclusiveScheme != null
+          ? exclusiveSchemes[prefs.exclusiveScheme]
+          : null;
+      final schemeColors = activeIsDark
+          ? (exclusive?.dark ?? FlexColor.schemes[prefs.flexScheme]!.dark)
+          : (exclusive?.light ?? FlexColor.schemes[prefs.flexScheme]!.light);
+      primaryKey = schemeColors.primary;
+      secondaryKey = schemeColors.secondary;
+      tertiaryKey = schemeColors.tertiary;
+    }
+
+    final seededScheme = SeedColorScheme.fromSeeds(
+      brightness: activeIsDark ? Brightness.dark : Brightness.light,
+      primaryKey: primaryKey,
+      secondaryKey: secondaryKey,
+      tertiaryKey: tertiaryKey,
+      variant: variant,
+    );
+
+    return CircleAvatar(
+      radius: 18,
+      backgroundColor: Colors.transparent,
+      child: Container(
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              seededScheme.primary,
+              seededScheme.secondary,
+              seededScheme.tertiary,
+            ],
+          ),
+          border: Border.all(
+            color: Theme.of(context).colorScheme.surface,
+            width: 1.5,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ThemeVariantPicker extends ConsumerWidget {
+  const _ThemeVariantPicker({
+    required this.currentVariant,
+    required this.isDark,
+    required this.onSelected,
+  });
+
+  final FlexSchemeVariant currentVariant;
+  final bool isDark;
+  final void Function(FlexSchemeVariant) onSelected;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final cs = Theme.of(context).colorScheme;
+    ref.watch(themePrefsProvider);
+
+    return ListView.builder(
+      shrinkWrap: true,
+      itemCount: FlexSchemeVariant.values.length,
+      itemBuilder: (context, index) {
+        final variant = FlexSchemeVariant.values[index];
+        final isSelected = currentVariant == variant;
+
+        return ListTile(
+          title: Text(variant.displayName),
+          subtitle: Text(variant.subtitle),
+          leading: _VariantSwatchPreview(
+            variant: variant,
+            isDark: Theme.of(context).brightness == Brightness.dark,
+          ),
+          trailing: isSelected ? Icon(Icons.check, color: cs.primary) : null,
+          onTap: () => onSelected(variant),
         );
       },
     );
