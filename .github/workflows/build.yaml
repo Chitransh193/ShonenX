@@ -379,11 +379,19 @@ jobs:
           set -euo pipefail
           git fetch --tags --force
 
+          # FIX: Sort tags by semantic versioning strictly, ignoring commit ancestry graph
           if git rev-parse -q --verify "refs/tags/$CURRENT_TAG" >/dev/null; then
-            PREV_TAG=$(git describe --tags --abbrev=0 "refs/tags/$CURRENT_TAG^" 2>/dev/null || true)
+            echo "Tag $CURRENT_TAG already exists. Finding the previous tag by version..."
+            PREV_TAG=$(git tag --sort=-v:refname | grep -A 1 "^${CURRENT_TAG}$" | tail -n 1)
+            if [ "$PREV_TAG" = "$CURRENT_TAG" ]; then
+              PREV_TAG="" # No older tag exists
+            fi
           else
-            PREV_TAG=$(git describe --tags --abbrev=0 HEAD 2>/dev/null || true)
+            echo "Tag $CURRENT_TAG does not exist yet. Finding the latest tag by version..."
+            PREV_TAG=$(git tag --sort=-v:refname | head -n 1)
           fi
+
+          echo "Previous Tag resolved to: $PREV_TAG"
 
           if [ -n "$PREV_TAG" ]; then
             echo "Comparing $PREV_TAG..HEAD"
