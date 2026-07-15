@@ -9,6 +9,7 @@ import 'package:shonenx/features/history/providers/read_history_provider.dart';
 import 'package:shonenx/shared/models/unified_media.dart';
 import 'package:shonenx/source_engine/source_registry.dart';
 import 'continue_card_layout.dart';
+import 'package:shonenx/shared/providers/theme_prefs_provider.dart';
 
 class ContinueReadingItem extends ConsumerStatefulWidget {
   final ReadHistoryEntry entry;
@@ -118,15 +119,27 @@ class _ContinueReadingItemState extends ConsumerState<ContinueReadingItem>
     final epTitle = widget.entry.chapterTitle;
     final subtitleText = 'CH $cleanNum${epTitle != null ? ' • $epTitle' : ''}';
 
-    final baseLayout = style.baseLayout;
-    final layout = style.layout;
+    final isWideMode = ref.watch(
+      uiPrefsProvider.select((s) => s.isContinueReadingWide(style.name)),
+    );
+    final scale = ref.watch(themePrefsProvider).uiScaleFactor;
+    final baseLayout = style.getBaseLayout(
+      isContinueReading: true,
+      isWideMode: isWideMode,
+    );
+    final layout = style.getScaledLayout(
+      scale,
+      isContinueReading: true,
+      isWideMode: isWideMode,
+    );
 
     final card = ContinueCardLayout(
-      isWideBanner: style == ContinueReadingStyle.wideBanner,
+      variant: style.name,
       width: baseLayout.width,
       height: baseLayout.height,
       isActive: isActive,
       isLoading: isLoading,
+      isWideMode: isWideMode,
       title: widget.entry.mangaTitle,
       subtitle: style == ContinueReadingStyle.wideBanner
           ? (widget.entry.chapterTitle ?? 'Continue reading')

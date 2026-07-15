@@ -11,17 +11,15 @@ class PresetState {
   final List<AppThemePreset> customPresets;
   final String? activePresetId;
 
-  const PresetState({
-    this.customPresets = const [],
-    this.activePresetId = '1',
-  });
+  const PresetState({this.customPresets = const [], this.activePresetId});
 
   List<AppThemePreset> get allPresets => [
-        ...BuiltInPresets.all,
-        ...customPresets,
-      ];
+    ...BuiltInPresets.all,
+    ...customPresets,
+  ];
 
   AppThemePreset? get activePreset {
+    if (activePresetId == null) return null;
     try {
       return allPresets.firstWhere((p) => p.id == activePresetId);
     } catch (_) {
@@ -45,14 +43,12 @@ class PresetState {
 
 class PresetNotifier extends Notifier<PresetState> {
   static const _presetsKey = 'app_custom_presets_list';
-  static const _activePresetIdKey = 'app_active_preset_id';
 
   SharedPreferences get _storage => ref.read(sharedPreferencesProvider);
 
   @override
   PresetState build() {
     final prefsJson = _storage.getString(_presetsKey);
-    final activeId = _storage.getString(_activePresetIdKey);
 
     List<AppThemePreset> loaded = [];
     if (prefsJson != null) {
@@ -64,23 +60,20 @@ class PresetNotifier extends Notifier<PresetState> {
       } catch (_) {}
     }
 
-    return PresetState(
-      customPresets: loaded,
-      activePresetId: activeId ?? '1',
-    );
+    return PresetState(customPresets: loaded, activePresetId: null);
   }
 
   void applyPreset(AppThemePreset preset) {
     // Apply to Theme preferences
-    ref.read(themePrefsProvider.notifier).updateTheme(
-          (current) => preset.applyToThemePrefs(current),
-        );
+    final themeNotifier = ref.read(themePrefsProvider.notifier);
+    themeNotifier.updateTheme((current) => preset.applyToThemePrefs(current));
 
-    // Apply to UI & Widget preferences
-    ref.read(uiPrefsProvider.notifier).updateCardStyle(preset.cardStyle);
-    ref.read(uiPrefsProvider.notifier).updateExperimentalConfig(preset.experimentalConfig);
+    // Apply to UI & Widget preferences including wide mode
+    final uiNotifier = ref.read(uiPrefsProvider.notifier);
+    uiNotifier.updateUiPrefs((current) => preset.applyToUiPrefs(current));
 
-    state = state.copyWith(activePresetId: preset.id);
+    // No tracking of active preset per user request (pure preset loader)
+    state = state.copyWith(clearActivePresetId: true);
     _saveDb();
   }
 
@@ -105,15 +98,20 @@ class PresetNotifier extends Notifier<PresetState> {
     );
 
     final updatedList = [...state.customPresets, newPreset];
-    state = state.copyWith(customPresets: updatedList, activePresetId: id);
+    state = state.copyWith(
+      customPresets: updatedList,
+      clearActivePresetId: true,
+    );
     _saveDb();
     return newPreset;
   }
 
-  AppThemePreset importPresetFromJson(String jsonString) {
+  AppThemePreset importPresetFromJson(String jsonString, {bool apply = true}) {
     final preset = AppThemePreset.fromJsonString(jsonString);
     // Check if a preset with same ID exists, if so replace or generate new ID
-    final existingIndex = state.customPresets.indexWhere((p) => p.id == preset.id);
+    final existingIndex = state.customPresets.indexWhere(
+      (p) => p.id == preset.id,
+    );
     List<AppThemePreset> updatedList;
     if (existingIndex >= 0) {
       updatedList = [...state.customPresets];
@@ -123,7 +121,11 @@ class PresetNotifier extends Notifier<PresetState> {
     }
 
     state = state.copyWith(customPresets: updatedList);
-    applyPreset(preset);
+    if (apply) {
+      applyPreset(preset);
+    } else {
+      _saveDb();
+    }
     return preset;
   }
 
@@ -139,18 +141,13 @@ class PresetNotifier extends Notifier<PresetState> {
   void clearActivePresetMark() {
     if (state.activePresetId != null) {
       state = state.copyWith(clearActivePresetId: true);
-      _storage.remove(_activePresetIdKey);
     }
   }
 
   void _saveDb() {
     final jsonList = state.customPresets.map((p) => p.toMap()).toList();
     _storage.setString(_presetsKey, jsonEncode(jsonList));
-    if (state.activePresetId != null) {
-      _storage.setString(_activePresetIdKey, state.activePresetId!);
-    } else {
-      _storage.remove(_activePresetIdKey);
-    }
+    _storage.remove('app_active_preset_id');
   }
 }
 
