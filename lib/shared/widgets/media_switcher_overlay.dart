@@ -2,7 +2,15 @@ import 'package:flutter/material.dart';
 
 class MediaSwitcherOverlay extends StatelessWidget {
   final TabController controller;
-  const MediaSwitcherOverlay({super.key, required this.controller});
+  final VoidCallback? onSearchTap;
+  final bool isSearchActive;
+
+  const MediaSwitcherOverlay({
+    super.key,
+    required this.controller,
+    this.onSearchTap,
+    this.isSearchActive = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -11,37 +19,75 @@ class MediaSwitcherOverlay extends StatelessWidget {
       builder: (context, _) {
         final theme = Theme.of(context);
         final colorScheme = theme.colorScheme;
-        return Container(
-          height: 48,
-          padding: const EdgeInsets.all(4),
-          decoration: BoxDecoration(
-            color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.92),
-            borderRadius: BorderRadius.circular(24),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.2),
-                blurRadius: 16,
-                offset: const Offset(0, 6),
+        final hasSearch = onSearchTap != null && !isSearchActive;
+
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              height: 48,
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: colorScheme.surfaceContainerHighest.withValues(
+                  alpha: 0.92,
+                ),
+                borderRadius: BorderRadius.circular(24),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.15),
+                    blurRadius: 16,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _MediaTabPill(
+                    label: 'Anime',
+                    icon: Icons.movie_outlined,
+                    isSelected: controller.index == 0,
+                    onTap: () => controller.animateTo(0),
+                  ),
+                  _MediaTabPill(
+                    label: 'Manga',
+                    icon: Icons.menu_book_outlined,
+                    isSelected: controller.index == 1,
+                    onTap: () => controller.animateTo(1),
+                  ),
+                ],
+              ),
+            ),
+            if (hasSearch) ...[
+              const SizedBox(width: 8),
+              GestureDetector(
+                onTap: onSearchTap,
+                child: Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: colorScheme.surfaceContainerHighest.withValues(
+                      alpha: 0.92,
+                    ),
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.15),
+                        blurRadius: 16,
+                        offset: const Offset(0, 6),
+                      ),
+                    ],
+                  ),
+                  alignment: Alignment.center,
+                  child: Icon(
+                    Icons.search_rounded,
+                    color: colorScheme.onSurfaceVariant,
+                    size: 22,
+                  ),
+                ),
               ),
             ],
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _MediaTabPill(
-                label: 'Anime',
-                icon: Icons.movie_outlined,
-                isSelected: controller.index == 0,
-                onTap: () => controller.animateTo(0),
-              ),
-              _MediaTabPill(
-                label: 'Manga',
-                icon: Icons.menu_book_outlined,
-                isSelected: controller.index == 1,
-                onTap: () => controller.animateTo(1),
-              ),
-            ],
-          ),
+          ],
         );
       },
     );
