@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
+import 'package:shonenx/features/discovery/domain/media_args.dart';
 import 'package:shonenx/features/discovery/presentation/widgets/sheets/download_sheet.dart';
 import 'package:shonenx/features/discovery/presentation/widgets/episodes_panel/episode_list_panel.dart';
 import 'package:shonenx/features/discovery/presentation/widgets/sheets/manual_match_sheet.dart';
@@ -170,36 +171,6 @@ class EpisodesTabWidget extends ConsumerWidget {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          if (media.type == MediaType.ANIME) ...[
-                            ListTile(
-                              title: const Text('Stream & Download Options'),
-                              leading: const Icon(Icons.tune_rounded),
-                              onTap: () {
-                                episodeActionsContext.pop();
-                                DownloadSheet.show(
-                                  context,
-                                  episode,
-                                  ref
-                                          .read(
-                                            mediaPreferenceProvider(
-                                              MatchArgs(
-                                                mediaTitle:
-                                                    media.title.availableTitle,
-                                                type: media.type,
-                                                sourceId: media.sourceId,
-                                                providerId: media.id,
-                                              ),
-                                            ),
-                                          )
-                                          .value
-                                          ?.sourceInfo ??
-                                      sources.first,
-                                  media,
-                                );
-                              },
-                            ),
-                            const Divider(height: 1),
-                          ],
                           ListTile(
                             title: const Text('Discussion'),
                             leading: const Icon(Icons.forum_rounded),
@@ -224,6 +195,34 @@ class EpisodesTabWidget extends ConsumerWidget {
                               );
                             },
                           ),
+                          if (media.type == MediaType.ANIME)
+                            ListTile(
+                              title: const Text('Stream / Download'),
+                              leading: const Icon(Icons.tune_rounded),
+                              onTap: () {
+                                episodeActionsContext.pop();
+                                DownloadSheet.show(
+                                  context,
+                                  episode,
+                                  ref
+                                          .read(
+                                            mediaPreferenceProvider(
+                                              MediaArgs(
+                                                mediaTitle:
+                                                    media.title.availableTitle,
+                                                type: media.type,
+                                                sourceId: media.sourceId,
+                                                providerId: media.id,
+                                              ),
+                                            ),
+                                          )
+                                          .value
+                                          ?.sourceInfo ??
+                                      sources.first,
+                                  media,
+                                );
+                              },
+                            ),
                         ],
                       ),
                     );
@@ -312,7 +311,7 @@ class _EpisodesHeader extends ConsumerWidget {
       return const SizedBox.shrink();
     }
 
-    final matchArgs = MatchArgs(
+    final matchArgs = MediaArgs(
       mediaTitle: title,
       type: media.type,
       sourceId: media.sourceId,
@@ -506,7 +505,7 @@ class _EpisodesHeader extends ConsumerWidget {
 
                           return InkWell(
                             onTap: () {
-                              final matchArgs = MatchArgs(
+                              final matchArgs = MediaArgs(
                                 mediaTitle: title,
                                 type: media.type,
                                 sourceId: media.sourceId,
@@ -624,7 +623,7 @@ class _EpisodesHeader extends ConsumerWidget {
                                                 ),
                                           ).then((_) {
                                             if (selected) {
-                                              final matchArgs = MatchArgs(
+                                              final matchArgs = MediaArgs(
                                                 mediaTitle: title,
                                                 type: media.type,
                                                 sourceId: media.sourceId,
@@ -693,7 +692,7 @@ class _EpisodesHeader extends ConsumerWidget {
                               children: [
                                 InkWell(
                                   onTap: () {
-                                    final matchArgs = MatchArgs(
+                                    final matchArgs = MediaArgs(
                                       mediaTitle: title,
                                       type: media.type,
                                       sourceId: media.sourceId,
@@ -815,7 +814,7 @@ class _EpisodesHeader extends ConsumerWidget {
                                                       ),
                                                 ).then((_) {
                                                   if (hasSelectedVariant) {
-                                                    final matchArgs = MatchArgs(
+                                                    final matchArgs = MediaArgs(
                                                       mediaTitle: title,
                                                       type: media.type,
                                                       sourceId: media.sourceId,
