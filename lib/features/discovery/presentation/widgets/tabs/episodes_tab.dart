@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
+import 'package:shonenx/features/discovery/domain/media_args.dart';
 import 'package:shonenx/features/discovery/presentation/widgets/sheets/download_sheet.dart';
 import 'package:shonenx/features/discovery/presentation/widgets/episodes_panel/episode_list_panel.dart';
 import 'package:shonenx/features/discovery/presentation/widgets/sheets/manual_match_sheet.dart';
@@ -62,6 +63,9 @@ class EpisodesTabWidget extends ConsumerWidget {
         ref.watch(historyEpisodesProvider(media.id)).value ?? [];
     final readHistoryEntries =
         ref.watch(historyChaptersProvider(media.id)).value ?? [];
+    final currentEpisodeNumber = media.type == MediaType.ANIME
+        ? watchHistoryEntries.firstOrNull?.episodeNumber
+        : readHistoryEntries.firstOrNull?.chapterNumber;
 
     return Column(
       children: [
@@ -78,7 +82,8 @@ class EpisodesTabWidget extends ConsumerWidget {
           child: EpisodeListPanel(
             media: media,
             watchedProgress: watchedProgress,
-            useScrollController: false,
+            currentEpisodeNumber: currentEpisodeNumber,
+            useScrollController: true,
             onEpisodeTap: (UnifiedEpisode episode, SourceInfo sourceInfo) {
               if (media.type == MediaType.MANGA) {
                 final historyEntry = readHistoryEntries
@@ -190,33 +195,34 @@ class EpisodesTabWidget extends ConsumerWidget {
                               );
                             },
                           ),
-                          ListTile(
-                            title: const Text('Download'),
-                            leading: const Icon(Icons.download),
-                            onTap: () {
-                              episodeActionsContext.pop();
-                              DownloadSheet.show(
-                                context,
-                                episode,
-                                ref
-                                        .read(
-                                          mediaPreferenceProvider(
-                                            MatchArgs(
-                                              mediaTitle:
-                                                  media.title.availableTitle,
-                                              type: media.type,
-                                              sourceId: media.sourceId,
-                                              providerId: media.id,
+                          if (media.type == MediaType.ANIME)
+                            ListTile(
+                              title: const Text('Stream / Download'),
+                              leading: const Icon(Icons.tune_rounded),
+                              onTap: () {
+                                episodeActionsContext.pop();
+                                DownloadSheet.show(
+                                  context,
+                                  episode,
+                                  ref
+                                          .read(
+                                            mediaPreferenceProvider(
+                                              MediaArgs(
+                                                mediaTitle:
+                                                    media.title.availableTitle,
+                                                type: media.type,
+                                                sourceId: media.sourceId,
+                                                providerId: media.id,
+                                              ),
                                             ),
-                                          ),
-                                        )
-                                        .value
-                                        ?.sourceInfo ??
-                                    sources.first,
-                                media,
-                              );
-                            },
-                          ),
+                                          )
+                                          .value
+                                          ?.sourceInfo ??
+                                      sources.first,
+                                  media,
+                                );
+                              },
+                            ),
                         ],
                       ),
                     );
@@ -305,7 +311,7 @@ class _EpisodesHeader extends ConsumerWidget {
       return const SizedBox.shrink();
     }
 
-    final matchArgs = MatchArgs(
+    final matchArgs = MediaArgs(
       mediaTitle: title,
       type: media.type,
       sourceId: media.sourceId,
@@ -499,7 +505,7 @@ class _EpisodesHeader extends ConsumerWidget {
 
                           return InkWell(
                             onTap: () {
-                              final matchArgs = MatchArgs(
+                              final matchArgs = MediaArgs(
                                 mediaTitle: title,
                                 type: media.type,
                                 sourceId: media.sourceId,
@@ -617,7 +623,7 @@ class _EpisodesHeader extends ConsumerWidget {
                                                 ),
                                           ).then((_) {
                                             if (selected) {
-                                              final matchArgs = MatchArgs(
+                                              final matchArgs = MediaArgs(
                                                 mediaTitle: title,
                                                 type: media.type,
                                                 sourceId: media.sourceId,
@@ -686,7 +692,7 @@ class _EpisodesHeader extends ConsumerWidget {
                               children: [
                                 InkWell(
                                   onTap: () {
-                                    final matchArgs = MatchArgs(
+                                    final matchArgs = MediaArgs(
                                       mediaTitle: title,
                                       type: media.type,
                                       sourceId: media.sourceId,
@@ -808,7 +814,7 @@ class _EpisodesHeader extends ConsumerWidget {
                                                       ),
                                                 ).then((_) {
                                                   if (hasSelectedVariant) {
-                                                    final matchArgs = MatchArgs(
+                                                    final matchArgs = MediaArgs(
                                                       mediaTitle: title,
                                                       type: media.type,
                                                       sourceId: media.sourceId,

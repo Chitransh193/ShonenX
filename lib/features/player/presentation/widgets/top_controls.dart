@@ -177,6 +177,25 @@ class TopControls extends ConsumerWidget {
               ),
               const SizedBox(width: 6),
               _buildActionIcon(
+                icon: Icons.camera_alt_outlined,
+                onTap: () async {
+                  final result = await ref
+                      .read(playerControllerProvider.notifier)
+                      .takeAndShareScreenshot();
+                  if (context.mounted && result.message != 'Save cancelled') {
+                    ScaffoldMessenger.of(context).clearSnackBars();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(result.message),
+                        behavior: SnackBarBehavior.floating,
+                        duration: const Duration(seconds: 3),
+                      ),
+                    );
+                  }
+                },
+              ),
+              const SizedBox(width: 6),
+              _buildActionIcon(
                 icon: Icons.tune_rounded,
                 onTap: () => _showPlayerOptionsMenu(context),
               ),

@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:shonenx/features/discovery/domain/media_args.dart';
 import 'package:shonenx/features/discovery/presentation/widgets/sheets/manual_tracker_match_sheet.dart';
 import 'package:shonenx/features/discovery/providers/discovery_prefs_provider.dart';
-import 'package:shonenx/features/discovery/providers/matched_media_provider.dart';
 import 'package:shonenx/features/discovery/providers/media_preference_provider.dart';
 import 'package:shonenx/features/notifications/domain/models/airing_schedule.dart';
 import 'package:shonenx/features/notifications/domain/models/notification_subscription.dart';
@@ -17,7 +17,7 @@ import 'package:shonenx/shared/widgets/app_bottom_sheet.dart';
 
 final _sheetScheduleProvider = FutureProvider.autoDispose
     .family<List<AiringSchedule>, UnifiedMedia>((ref, media) async {
-      final args = MatchArgs(
+      final args = MediaArgs(
         mediaTitle: media.title.availableTitle,
         type: media.type,
       );
@@ -29,14 +29,13 @@ final _sheetScheduleProvider = FutureProvider.autoDispose
       final fallbackTrackerType =
           TrackerType.tryFromId(metadataSourceId) ?? TrackerType.anilist;
 
-      final targetTrackerType =
-          prefs.preferredAiringTracker ?? fallbackTrackerType;
+      final targetTrackerType = prefs.preferredTracker ?? fallbackTrackerType;
 
       String targetId = media.id;
       final primaryTrackerType = ref.read(primaryTrackerProvider).type;
 
-      if (prefs.manualAiringTrackerId != null) {
-        targetId = prefs.manualAiringTrackerId!;
+      if (prefs.trackerMediaId != null) {
+        targetId = prefs.trackerMediaId!;
       } else if (targetTrackerType != primaryTrackerType) {
         if (targetTrackerType == TrackerType.myanimelist &&
             media.idMal != null) {
@@ -452,7 +451,7 @@ class _NotificationSubscriptionSheetState
             const SizedBox(height: 8),
             Consumer(
               builder: (context, ref, child) {
-                final args = MatchArgs(
+                final args = MediaArgs(
                   mediaTitle: widget.media.title.availableTitle,
                   type: widget.media.type,
                 );
@@ -466,7 +465,7 @@ class _NotificationSubscriptionSheetState
                     TrackerType.anilist;
 
                 final tracker =
-                    prefsAsync.value?.preferredAiringTracker ?? fallbackTracker;
+                    prefsAsync.value?.preferredTracker ?? fallbackTracker;
 
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -501,7 +500,7 @@ class _NotificationSubscriptionSheetState
                         if (val != null) {
                           ref
                               .read(mediaPreferenceProvider(args).notifier)
-                              .setPreferredAiringTracker(val);
+                              .setPreferredTracker(val);
                         }
                       },
                     ),

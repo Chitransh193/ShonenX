@@ -3,15 +3,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:shonenx/shared/widgets/app_bottom_sheet.dart';
-import 'package:shonenx/shared/providers/theme_prefs_provider.dart';
+import 'package:share_plus/share_plus.dart';
+
 import 'package:shonenx/features/auth/providers/auth_provider.dart';
-import 'package:shonenx/features/discovery/presentation/widgets/tabs/about_tab.dart';
 import 'package:shonenx/features/comments/presentation/widgets/comments_tab.dart';
+import 'package:shonenx/features/discovery/presentation/widgets/tabs/about_tab.dart';
 import 'package:shonenx/features/discovery/presentation/widgets/tabs/episodes_tab.dart';
 import 'package:shonenx/features/discovery/providers/details_provider.dart';
 import 'package:shonenx/features/downloads/domain/models/download_task.dart';
 import 'package:shonenx/features/downloads/providers/download_provider.dart';
+import 'package:shonenx/features/player/domain/player_mode.dart';
+import 'package:shonenx/features/reader/domain/reader_mode.dart';
 import 'package:shonenx/features/tracking/domain/isar_tracker_link.dart';
 import 'package:shonenx/features/tracking/domain/models/tracked_list_item.dart';
 import 'package:shonenx/features/tracking/domain/models/tracker_type.dart';
@@ -22,10 +24,10 @@ import 'package:shonenx/features/tracking/presentation/widgets/tracker_manager_s
 import 'package:shonenx/features/tracking/providers/media_tracking_provider.dart';
 import 'package:shonenx/features/tracking/providers/tracker_link_provider.dart';
 import 'package:shonenx/features/tracking/providers/tracker_registry.dart';
-import 'package:shonenx/features/player/domain/player_mode.dart';
-import 'package:shonenx/features/reader/domain/reader_mode.dart';
 import 'package:shonenx/features/tracking/providers/tracking_prefs_provider.dart';
 import 'package:shonenx/shared/models/unified_media.dart';
+import 'package:shonenx/shared/providers/theme_prefs_provider.dart';
+import 'package:shonenx/shared/widgets/app_bottom_sheet.dart';
 import 'package:shonenx/shared/widgets/app_scaffold.dart';
 
 class DetailsScreen extends ConsumerStatefulWidget {
@@ -163,6 +165,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen>
           widget.media.id,
           widget.mediaType,
           sourceId: widget.media.sourceId,
+          trackerId: widget.media.providerId,
         ),
       ),
     );
@@ -188,6 +191,52 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen>
                     icon: const Icon(Icons.arrow_back_ios_new),
                     onPressed: () => context.pop(),
                   ),
+                  actions: [
+                    const _DownloadAppBarButton(),
+                    IconButton.filledTonal(
+                      tooltip: 'Share',
+                      style: IconButton.styleFrom(
+                        backgroundColor: theme.colorScheme.secondaryContainer,
+                        foregroundColor: theme.colorScheme.onSecondaryContainer,
+                        padding: EdgeInsets.zero,
+                        minimumSize: const Size(36, 36),
+                        fixedSize: const Size(36, 36),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(uiRoundness),
+                        ),
+                      ),
+                      icon: const Icon(Icons.share, size: 18),
+                      onPressed: () {
+                        final providerId = displayMedia.providerId ?? 'anilist';
+                        final id = displayMedia.id;
+                        final type = widget.mediaType == MediaType.ANIME
+                            ? 'anime'
+                            : 'manga';
+                        String url;
+                        if (providerId == 'myanimelist' ||
+                            providerId == 'mal') {
+                          url = 'https://myanimelist.net/$type/$id';
+                        } else if (providerId == 'kitsu') {
+                          url = 'https://kitsu.io/$type/$id';
+                        } else {
+                          url = 'https://anilist.co/$type/$id';
+                        }
+                        SharePlus.instance.share(
+                          ShareParams(uri: Uri.parse(url)),
+                        );
+                      },
+                    ),
+                    const SizedBox(width: 6),
+                    _CommentsAppBarButton(
+                      media: displayMedia,
+                      uiRoundness: uiRoundness,
+                    ),
+                    const SizedBox(width: 4),
+                    _TrackerAppBarButton(
+                      media: displayMedia,
+                      uiRoundness: uiRoundness,
+                    ),
+                  ],
                   flexibleSpace: FlexibleSpaceBar(
                     titlePadding: EdgeInsets.zero,
                     background: Stack(
@@ -335,18 +384,6 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen>
                       ],
                     ),
                   ),
-                  actions: [
-                    const _DownloadAppBarButton(),
-                    _CommentsAppBarButton(
-                      media: displayMedia,
-                      uiRoundness: uiRoundness,
-                    ),
-                    const SizedBox(width: 4),
-                    _TrackerAppBarButton(
-                      media: displayMedia,
-                      uiRoundness: uiRoundness,
-                    ),
-                  ],
                 ),
               ],
               body: TabBarView(
@@ -592,6 +629,7 @@ class _TrackerAppBarButton extends ConsumerWidget {
       style: TextButton.styleFrom(
         backgroundColor: theme.colorScheme.primary,
         foregroundColor: theme.colorScheme.onPrimary,
+        visualDensity: VisualDensity.compact,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.horizontal(
             left: Radius.circular(uiRoundness),
@@ -655,7 +693,7 @@ class _DownloadAppBarButton extends ConsumerWidget {
     final colorScheme = Theme.of(context).colorScheme;
 
     return Padding(
-      padding: const EdgeInsets.only(right: 8),
+      padding: const EdgeInsets.only(right: 6),
       child: Badge(
         isLabelVisible: activeCount > 0,
         label: Text(activeCount.toString()),
@@ -665,16 +703,19 @@ class _DownloadAppBarButton extends ConsumerWidget {
           style: IconButton.styleFrom(
             backgroundColor: colorScheme.primaryContainer,
             foregroundColor: colorScheme.onPrimaryContainer,
+            padding: EdgeInsets.zero,
+            minimumSize: const Size(36, 36),
+            fixedSize: const Size(36, 36),
           ),
           icon: Stack(
             alignment: Alignment.center,
             children: [
               SizedBox(
-                width: 26,
-                height: 26,
+                width: 22,
+                height: 22,
                 child: CircularProgressIndicator(
                   value: averageProgress,
-                  strokeWidth: 2.2,
+                  strokeWidth: 2.0,
                   strokeCap: StrokeCap.round,
                   backgroundColor: colorScheme.primaryContainer.withValues(
                     alpha: 0.12,
@@ -682,7 +723,7 @@ class _DownloadAppBarButton extends ConsumerWidget {
                   color: colorScheme.onPrimaryContainer,
                 ),
               ),
-              const Icon(Icons.download_rounded, size: 18),
+              const Icon(Icons.download_rounded, size: 16),
             ],
           ),
         ),
@@ -700,20 +741,20 @@ class _CommentsAppBarButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.only(right: 2),
-      child: IconButton.filledTonal(
-        tooltip: 'Discussion',
-        style: IconButton.styleFrom(
-          backgroundColor: theme.colorScheme.secondaryContainer,
-          foregroundColor: theme.colorScheme.onSecondaryContainer,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(uiRoundness),
-          ),
+    return IconButton.filledTonal(
+      tooltip: 'Discussion',
+      style: IconButton.styleFrom(
+        backgroundColor: theme.colorScheme.secondaryContainer,
+        foregroundColor: theme.colorScheme.onSecondaryContainer,
+        padding: EdgeInsets.zero,
+        minimumSize: const Size(36, 36),
+        fixedSize: const Size(36, 36),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(uiRoundness),
         ),
-        icon: const Icon(Icons.forum_rounded, size: 18),
-        onPressed: () => _showCommentsSheet(context, media),
       ),
+      icon: const Icon(Icons.forum_rounded, size: 18),
+      onPressed: () => _showCommentsSheet(context, media),
     );
   }
 }

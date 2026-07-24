@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shonenx/core/services/one_dm_service.dart';
 import 'package:shonenx/features/downloads/providers/download_prefs_provider.dart';
 import 'package:shonenx/features/settings/presentation/widgets/settings_ui_components.dart';
 import 'package:shonenx/shared/widgets/app_scaffold.dart';
@@ -26,196 +27,332 @@ class DownloadSettingsScreen extends ConsumerWidget {
             SettingsSection(
               title: 'Storage',
               children: [
-                SettingsActionTile(
-                  icon: Icons.folder_outlined,
-                  title: 'Download Location',
-                  subtitle: prefs.downloadPath,
-                  onTap: () async {
-                    final String? directoryPath = await FilePicker.platform
-                        .getDirectoryPath();
-                    if (directoryPath != null &&
-                        directoryPath != prefs.downloadPath) {
-                      if (context.mounted) {
-                        _handleLocationChangeRequest(
-                          context,
-                          prefsNotifier,
-                          prefs.downloadPath,
-                          directoryPath,
-                        );
-                      }
-                    }
-                  },
-                  trailing: FilledButton.icon(
-                    icon: const Icon(Icons.restore_outlined, size: 18),
-                    label: const Text('Reset'),
-                    onPressed: () async {
-                      final targetPath = await prefsNotifier
-                          .getDefaultDownloadPath();
-                      if (context.mounted) {
-                        _handleLocationChangeRequest(
-                          context,
-                          prefsNotifier,
-                          prefs.downloadPath,
-                          targetPath,
-                        );
-                      }
-                    },
+                if (!prefs.useOneDM)
+                  Padding(
+                    padding: const EdgeInsets.only(
+                      left: 16,
+                      right: 16,
+                      bottom: 8,
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(
+                          Icons.info_outline_rounded,
+                          size: 16,
+                          color: colors.primary,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Note: It is highly recommended to download only DUB streams or Hard Subbed streams. Soft sub implementation is not yet fully supported for downloads.',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: colors.onSurfaceVariant,
+                              height: 1.3,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-                SettingsSwitchTile(
-                  icon: Icons.delete_sweep_outlined,
-                  title: 'Auto-Delete Watched Episodes',
-                  subtitle:
-                      'Frees up space automatically when an episode is marked as completed',
-                  value: prefs.autoDeleteWatched,
-                  onChanged: (val) {
-                    prefsNotifier.setAutoDeleteWatched(val);
-                  },
+                AbsorbPointer(
+                  absorbing: prefs.useOneDM,
+                  child: Opacity(
+                    opacity: prefs.useOneDM ? 0.5 : 1.0,
+                    child: Column(
+                      children: [
+                        SettingsActionTile(
+                          icon: Icons.folder_outlined,
+                          title: 'Download Location',
+                          subtitle: prefs.downloadPath,
+                          onTap: () async {
+                            final String? directoryPath = await FilePicker
+                                .platform
+                                .getDirectoryPath();
+                            if (directoryPath != null &&
+                                directoryPath != prefs.downloadPath) {
+                              if (context.mounted) {
+                                _handleLocationChangeRequest(
+                                  context,
+                                  prefsNotifier,
+                                  prefs.downloadPath,
+                                  directoryPath,
+                                );
+                              }
+                            }
+                          },
+                          trailing: FilledButton.icon(
+                            icon: const Icon(Icons.restore_outlined, size: 18),
+                            label: const Text('Reset'),
+                            onPressed: () async {
+                              final targetPath = await prefsNotifier
+                                  .getDefaultDownloadPath();
+                              if (context.mounted) {
+                                _handleLocationChangeRequest(
+                                  context,
+                                  prefsNotifier,
+                                  prefs.downloadPath,
+                                  targetPath,
+                                );
+                              }
+                            },
+                          ),
+                        ),
+                        SettingsSwitchTile(
+                          icon: Icons.delete_sweep_outlined,
+                          title: 'Auto-Delete Watched Episodes',
+                          subtitle:
+                              'Frees up space automatically when an episode is marked as completed',
+                          value: prefs.autoDeleteWatched,
+                          onChanged: (val) {
+                            prefsNotifier.setAutoDeleteWatched(val);
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ],
             ),
             SettingsSection(
               title: 'Organization',
               children: [
-                SettingsSwitchTile(
-                  icon: Icons.create_new_folder_outlined,
-                  title: 'Create Anime Folders',
-                  subtitle:
-                      'Groups episodes inside a folder named after the anime title',
-                  value: prefs.createSubfolders,
-                  onChanged: (val) {
-                    prefsNotifier.setCreateSubfolders(val);
-                  },
-                ),
-                SettingsDropdownTile<FileNameFormat>(
-                  icon: Icons.title_outlined,
-                  title: 'File Name Format',
-                  value: prefs.fileNameFormat,
-                  items: FileNameFormat.values
-                      .map(
-                        (f) => DropdownMenuItem(
-                          value: f,
-                          child: Text(f.displayName),
+                AbsorbPointer(
+                  absorbing: prefs.useOneDM,
+                  child: Opacity(
+                    opacity: prefs.useOneDM ? 0.5 : 1.0,
+                    child: Column(
+                      children: [
+                        SettingsSwitchTile(
+                          icon: Icons.create_new_folder_outlined,
+                          title: 'Create Anime Folders',
+                          subtitle:
+                              'Groups episodes inside a folder named after the anime title',
+                          value: prefs.createSubfolders,
+                          onChanged: (val) {
+                            prefsNotifier.setCreateSubfolders(val);
+                          },
                         ),
-                      )
-                      .toList(),
-                  onChanged: (value) {
-                    if (value != null) {
-                      prefsNotifier.setFileNameFormat(value);
-                    }
-                  },
-                ),
-                Padding(
-                  padding: const EdgeInsets.only(
-                    left: 72,
-                    right: 16,
-                    bottom: 16,
-                  ),
-                  child: Text(
-                    '↳ Preview: ${_getPreviewFormat(prefs.fileNameFormat)}',
-                    style: TextStyle(
-                      color: colors.primary,
-                      fontStyle: FontStyle.italic,
-                      fontSize: 13,
+                        SettingsDropdownTile<FileNameFormat>(
+                          icon: Icons.title_outlined,
+                          title: 'File Name Format',
+                          value: prefs.fileNameFormat,
+                          items: FileNameFormat.values
+                              .map(
+                                (f) => DropdownMenuItem(
+                                  value: f,
+                                  child: Text(f.displayName),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: (value) {
+                            if (value != null) {
+                              prefsNotifier.setFileNameFormat(value);
+                            }
+                          },
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.only(
+                            left: 72,
+                            right: 16,
+                            bottom: 16,
+                          ),
+                          child: Text(
+                            '↳ Preview: ${_getPreviewFormat(prefs.fileNameFormat)}',
+                            style: TextStyle(
+                              color: colors.primary,
+                              fontStyle: FontStyle.italic,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                        SettingsDropdownTile<DuplicateAction>(
+                          icon: Icons.file_copy_outlined,
+                          title: 'If File Already Exists',
+                          value: prefs.duplicateAction,
+                          items: DuplicateAction.values
+                              .map(
+                                (f) => DropdownMenuItem(
+                                  value: f,
+                                  child: Text(f.displayName),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: (value) {
+                            if (value != null) {
+                              prefsNotifier.setDuplicateAction(value);
+                            }
+                          },
+                        ),
+                      ],
                     ),
                   ),
-                ),
-                SettingsDropdownTile<DuplicateAction>(
-                  icon: Icons.file_copy_outlined,
-                  title: 'If File Already Exists',
-                  value: prefs.duplicateAction,
-                  items: DuplicateAction.values
-                      .map(
-                        (f) => DropdownMenuItem(
-                          value: f,
-                          child: Text(f.displayName),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: (value) {
-                    if (value != null) {
-                      prefsNotifier.setDuplicateAction(value);
-                    }
-                  },
                 ),
               ],
             ),
             SettingsSection(
               title: 'Network & Behavior',
               children: [
-                SettingsSwitchTile(
-                  icon: Icons.wifi_outlined,
-                  title: 'Download over Wi-Fi Only',
-                  subtitle: 'Pause downloads when connected to mobile data',
-                  value: prefs.wifiOnly,
-                  onChanged: (val) {
-                    prefsNotifier.setWifiOnly(val);
-                  },
-                ),
-                SettingsActionTile(
-                  icon: Icons.layers_outlined,
-                  title: 'Concurrent Downloads',
-                  subtitle:
-                      'Maximum active downloads: ${prefs.concurrentDownloads}',
-                  onTap: () {},
-                ),
-                Padding(
-                  padding: const EdgeInsets.only(
-                    left: 56,
-                    right: 16,
-                    bottom: 8,
-                  ),
-                  child: Slider(
-                    value: prefs.concurrentDownloads.toDouble(),
-                    min: 1,
-                    max: 3,
-                    divisions: 2,
-                    label: prefs.concurrentDownloads.toString(),
-                    onChanged: (val) {
-                      prefsNotifier.setConcurrentDownloads(val.toInt());
-                    },
-                  ),
-                ),
-                SettingsActionTile(
-                  icon: Icons.speed_outlined,
-                  title: 'Concurrent Segments per Download',
-                  subtitle:
-                      'Parallel threads for stream segments: ${prefs.concurrentSegments}',
-                  onTap: () {},
-                ),
-                Padding(
-                  padding: const EdgeInsets.only(
-                    left: 56,
-                    right: 16,
-                    bottom: 8,
-                  ),
-                  child: Slider(
-                    value: prefs.concurrentSegments.toDouble(),
-                    min: 1,
-                    max: 16,
-                    divisions: 15,
-                    label: prefs.concurrentSegments.toString(),
-                    onChanged: (val) {
-                      prefsNotifier.setConcurrentSegments(val.toInt());
-                    },
+                AbsorbPointer(
+                  absorbing: prefs.useOneDM,
+                  child: Opacity(
+                    opacity: prefs.useOneDM ? 0.5 : 1.0,
+                    child: Column(
+                      children: [
+                        SettingsSwitchTile(
+                          icon: Icons.wifi_outlined,
+                          title: 'Download over Wi-Fi Only',
+                          subtitle:
+                              'Pause downloads when connected to mobile data',
+                          value: prefs.wifiOnly,
+                          onChanged: (val) {
+                            prefsNotifier.setWifiOnly(val);
+                          },
+                        ),
+                        SettingsActionTile(
+                          icon: Icons.layers_outlined,
+                          title: 'Concurrent Downloads',
+                          subtitle:
+                              'Maximum active downloads: ${prefs.concurrentDownloads}',
+                          onTap: () {},
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.only(
+                            left: 56,
+                            right: 16,
+                            bottom: 8,
+                          ),
+                          child: Slider(
+                            value: prefs.concurrentDownloads.toDouble(),
+                            min: 1,
+                            max: 3,
+                            divisions: 2,
+                            label: prefs.concurrentDownloads.toString(),
+                            onChanged: (val) {
+                              prefsNotifier.setConcurrentDownloads(val.toInt());
+                            },
+                          ),
+                        ),
+                        SettingsActionTile(
+                          icon: Icons.speed_outlined,
+                          title: 'Concurrent Segments per Download',
+                          subtitle:
+                              'Parallel threads for stream segments: ${prefs.concurrentSegments}',
+                          onTap: () {},
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.only(
+                            left: 56,
+                            right: 16,
+                            bottom: 8,
+                          ),
+                          child: Slider(
+                            value: prefs.concurrentSegments.toDouble(),
+                            min: 1,
+                            max: 16,
+                            divisions: 15,
+                            label: prefs.concurrentSegments.toString(),
+                            onChanged: (val) {
+                              prefsNotifier.setConcurrentSegments(val.toInt());
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
                 if (Platform.isAndroid) ...[
-                  SettingsSwitchTile(
-                    leading: SvgIcon(
-                      color: colors.primary,
-                      size: 30,
-                      '''<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">
-                        <path fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round" d="M10.78 37.272h23.98c13.018 0 10.842-19.588-2.216-15.235c0-10.882-19.588-10.882-19.588 2.176C2.074 22.037 2.074 37.272 10.78 37.272" stroke-width="2.2" />
-                        <path fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round" d="M27.273 27.477L24 30.75l-3.273-3.273M24 30.75v-9.998m-5.758 12h11.516" stroke-width="2.2" />
-                      </svg>''',
-                    ),
-                    title: 'Use External Downloader (1DM)',
-                    subtitle:
-                        'Send links to external apps instead of the built-in engine',
-                    value: prefs.useOneDM,
-                    onChanged: (val) {
-                      prefsNotifier.setUseOneDM(val);
+                  Builder(
+                    builder: (context) {
+                      final isInstalledAsync = ref.watch(
+                        isOneDMInstalledProvider,
+                      );
+                      final isInstalled = isInstalledAsync.value ?? false;
+                      final svgIcon = SvgIcon(
+                        color: colors.primary,
+                        size: 30,
+                        '''<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">
+                          <path fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round" d="M10.78 37.272h23.98c13.018 0 10.842-19.588-2.216-15.235c0-10.882-19.588-10.882-19.588 2.176C2.074 22.037 2.074 37.272 10.78 37.272" stroke-width="2.2" />
+                          <path fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round" d="M27.273 27.477L24 30.75l-3.273-3.273M24 30.75v-9.998m-5.758 12h11.516" stroke-width="2.2" />
+                        </svg>''',
+                      );
+
+                      if (isInstalled) {
+                        return SettingsSwitchTile(
+                          leading: svgIcon,
+                          title: 'Use External Downloader (1DM)',
+                          subtitle:
+                              'Send links to external apps instead of the built-in engine',
+                          value: prefs.useOneDM,
+                          onChanged: (val) {
+                            prefsNotifier.setUseOneDM(val);
+                          },
+                        );
+                      } else {
+                        return SettingsActionTile(
+                          leading: Opacity(opacity: 0.5, child: svgIcon),
+                          title: 'Use External Downloader (1DM)',
+                          subtitle:
+                              '1DM is not installed on your device. High-speed multi-threaded downloader for Android.',
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: const Icon(
+                                  Icons.info_outline_rounded,
+                                  size: 20,
+                                ),
+                                tooltip: 'What is 1DM?',
+                                onPressed: () {
+                                  showDialog(
+                                    context: context,
+                                    builder: (ctx) => AlertDialog(
+                                      title: const Text('About 1DM Downloader'),
+                                      content: const Text(
+                                        '1DM (Internet Download Manager) is a popular third-party Android download manager app. '
+                                        'It supports up to 32 parallel download connections, background downloads, and smart error recovery.\n\n'
+                                        'If installed, ShonenX can send episode download streams directly to 1DM.',
+                                      ),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () => Navigator.pop(ctx),
+                                          child: const Text('Close'),
+                                        ),
+                                        FilledButton.icon(
+                                          icon: const Icon(
+                                            Icons.get_app_rounded,
+                                            size: 18,
+                                          ),
+                                          label: const Text(
+                                            'Get on Play Store',
+                                          ),
+                                          onPressed: () {
+                                            Navigator.pop(ctx);
+                                            OneDMService.instance
+                                                .launchPlayStore();
+                                          },
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                },
+                              ),
+                              const SizedBox(width: 4),
+                              FilledButton.tonalIcon(
+                                icon: const Icon(
+                                  Icons.download_rounded,
+                                  size: 16,
+                                ),
+                                label: const Text('Install'),
+                                onPressed: () =>
+                                    OneDMService.instance.launchPlayStore(),
+                              ),
+                            ],
+                          ),
+                          onTap: () => OneDMService.instance.launchPlayStore(),
+                        );
+                      }
                     },
                   ),
                 ],

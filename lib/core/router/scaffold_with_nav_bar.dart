@@ -19,6 +19,7 @@ import 'package:shonenx/features/downloads/providers/download_provider.dart';
 import 'package:shonenx/shared/widgets/app_scaffold.dart';
 import 'package:shonenx/shared/providers/navbar_action_provider.dart';
 import 'package:shonenx/app_init.dart';
+import 'package:shonenx/shared/models/unified_media.dart';
 
 final _navBreakpoints = ResponsiveBreakpoints.defaults.copyWith(
   heightNormal: 750,
@@ -80,6 +81,36 @@ class _ScaffoldWithNavBarState extends ConsumerState<ScaffoldWithNavBar> {
   void _handleDeepLink(Uri uri) {
     final scheme = uri.scheme.toLowerCase();
     final host = uri.host.toLowerCase();
+
+    if (host == 'anilist.co' ||
+        host == 'myanimelist.net' ||
+        host == 'kitsu.io' ||
+        host == 'kitsu.app') {
+      final pathSegments = uri.pathSegments;
+      if (pathSegments.length >= 2) {
+        final mediaTypeStr = pathSegments[0].toLowerCase();
+        final id = pathSegments[1];
+        MediaType? mediaType;
+        if (mediaTypeStr == 'anime') mediaType = MediaType.ANIME;
+        if (mediaTypeStr == 'manga') mediaType = MediaType.MANGA;
+
+        if (mediaType != null) {
+          String providerId = 'anilist';
+          if (host == 'myanimelist.net') providerId = 'myanimelist';
+          if (host == 'kitsu.io' || host == 'kitsu.app') providerId = 'kitsu';
+
+          final media = UnifiedMedia(
+            id: id,
+            title: MediaTitle(english: 'Loading...'),
+            type: mediaType,
+            providerId: providerId,
+          );
+
+          context.push('/details/${mediaType.id}', extra: media);
+          return;
+        }
+      }
+    }
 
     if ((scheme == 'aniyomi' ||
             scheme == 'tachiyomi' ||
@@ -427,16 +458,14 @@ class _BottomNavBar extends ConsumerWidget {
                             ),
                           ),
                   ),
-                  if (navBarStyle != NavBarStyle.minimal) ...[
-                    SizedBox(width: hPad + 4),
-                    _DownloadButton(
-                      colorScheme: cs,
-                      size: barHeight,
-                      iconSize: iconSize,
-                      padding: hPad,
-                      navBarStyle: navBarStyle,
-                    ),
-                  ],
+                  SizedBox(width: hPad + 4),
+                  _DownloadButton(
+                    colorScheme: cs,
+                    size: barHeight,
+                    iconSize: iconSize,
+                    padding: hPad,
+                    navBarStyle: navBarStyle,
+                  ),
                 ],
               ),
             ],
@@ -628,7 +657,21 @@ class _DownloadButton extends ConsumerWidget {
         borderRadius: BorderRadius.circular(GlobalUI.uiRoundness),
         border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.45)),
       ),
-      NavBarStyle.minimal => const BoxDecoration(color: Colors.transparent),
+      NavBarStyle.minimal => BoxDecoration(
+        color: cs.surface.withValues(alpha: 0.95),
+        borderRadius: BorderRadius.circular(GlobalUI.uiRoundness),
+        border: Border.all(
+          color: cs.outlineVariant.withValues(alpha: 0.2),
+          width: 0.8,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.08),
+            blurRadius: 16,
+            spreadRadius: 0.5,
+          ),
+        ],
+      ),
       NavBarStyle.frosted => BoxDecoration(
         color: Colors.white.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(GlobalUI.uiRoundness),
@@ -836,24 +879,22 @@ class _SideNavBar extends ConsumerWidget {
                 ),
               ),
             ),
-            if (navBarStyle != NavBarStyle.minimal) ...[
-              SizedBox(height: gapBetween),
-              Expanded(
-                flex: 1,
-                child: _SideBarContainer(
-                  width: barWidth,
-                  padding: hPad,
-                  navBarStyle: navBarStyle,
+            SizedBox(height: gapBetween),
+            Expanded(
+              flex: 1,
+              child: _SideBarContainer(
+                width: barWidth,
+                padding: hPad,
+                navBarStyle: navBarStyle,
+                cs: cs,
+                child: _TallDownloadPillContent(
                   cs: cs,
-                  child: _TallDownloadPillContent(
-                    cs: cs,
-                    heightTier: h,
-                    hideLabel: hideDownloadLabel,
-                    navBarStyle: navBarStyle,
-                  ),
+                  heightTier: h,
+                  hideLabel: hideDownloadLabel,
+                  navBarStyle: navBarStyle,
                 ),
               ),
-            ],
+            ),
           ],
         ),
       ),

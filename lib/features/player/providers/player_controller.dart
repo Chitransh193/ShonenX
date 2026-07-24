@@ -1,28 +1,33 @@
 import 'dart:async';
 import 'dart:convert';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:screenshot/screenshot.dart';
-import 'package:shonenx/core/network/http_client.dart';
-import 'package:shonenx/core/utils/http_x.dart';
+import 'dart:io';
 
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:screenshot/screenshot.dart';
+import 'package:share_plus/share_plus.dart';
+
+import 'package:shonenx/core/network/http_client.dart';
 import 'package:shonenx/core/utils/extensions.dart';
+import 'package:shonenx/core/utils/http_x.dart';
+import 'package:shonenx/features/discovery/domain/media_args.dart';
 import 'package:shonenx/features/discovery/providers/episodes_provider.dart';
-import 'package:shonenx/features/discovery/providers/matched_media_provider.dart';
 import 'package:shonenx/features/history/domain/models/watch_history_entry.dart';
 import 'package:shonenx/features/history/providers/watch_history_provider.dart';
 import 'package:shonenx/features/player/domain/aniskip_prefs.dart';
-import 'package:shonenx/features/player/providers/player_prefs_provider.dart';
-import 'package:shonenx/features/player/providers/video_engine_provider.dart';
+import 'package:shonenx/features/player/domain/player_mode.dart';
 import 'package:shonenx/features/player/providers/aniskip_prefs_provider.dart';
 import 'package:shonenx/features/player/providers/aniskip_provider.dart';
+import 'package:shonenx/features/player/providers/player_prefs_provider.dart';
 import 'package:shonenx/features/player/providers/subtitle_prefs_provider.dart';
+import 'package:shonenx/features/player/providers/video_engine_provider.dart';
 import 'package:shonenx/features/tracking/engine/sync_engine.dart';
 import 'package:shonenx/shared/models/unified_episode.dart';
 import 'package:shonenx/shared/models/unified_media.dart';
 import 'package:shonenx/shared/models/video_server.dart';
 import 'package:shonenx/shared/models/video_stream.dart';
 import 'package:shonenx/source_engine/providers/anime_source.dart';
-import 'package:shonenx/features/player/domain/player_mode.dart';
 import 'package:shonenx/source_engine/source_engine_provider.dart';
 
 const _keepError = Object();
@@ -263,6 +268,44 @@ class PlayerController extends Notifier<PlayerState> {
     await changeServer(server);
   }
 
+  Future<void> changeStreamType({bool? isDub, bool toggle = true}) async {
+    final currentStream = state.activeStream;
+    if (currentStream == null) return;
+
+    bool targetDub = isDub ?? false;
+    if (toggle && isDub == null) {
+      final q = currentStream.quality.toLowerCase();
+      final currentlyDub = q.contains('dub') || q.contains('english');
+      targetDub = !currentlyDub;
+    }
+
+    _preferredServerType = targetDub ? ServerType.dub : ServerType.sub;
+    ref
+        .read(playerPrefsProvider.notifier)
+        .setDefaultServerType(_preferredServerType!);
+
+    VideoStream? targetStream;
+    if (targetDub) {
+      targetStream = state.streams.firstWhereOrNull((s) {
+        final sq = s.quality.toLowerCase();
+        return sq.contains('dub') || sq.contains('english');
+      });
+    } else {
+      targetStream = state.streams.firstWhereOrNull((s) {
+        final sq = s.quality.toLowerCase();
+        return sq.contains('sub') || sq.contains('japanese');
+      });
+      targetStream ??= state.streams.firstWhereOrNull((s) {
+        final sq = s.quality.toLowerCase();
+        return !sq.contains('dub') && !sq.contains('english');
+      });
+    }
+
+    if (targetStream != null && targetStream.url != currentStream.url) {
+      await changeStream(targetStream);
+    }
+  }
+
   Future<void> loadEpisode(
     UnifiedEpisode newEpisode, {
     bool force = false,
@@ -275,15 +318,44 @@ class PlayerController extends Notifier<PlayerState> {
   }
 
   Future<void> skipEpisode({bool forward = true}) async {
-    if (_media == null) return;
+    if (_media == null || state.activeEpisode == null) return;
     final episodes = await ref.read(
       episodesListProvider(
-        MatchArgs.fromMedia(_media!),
+        MediaArgs.fromMedia(_media!),
       ).selectAsync((s) => s.episodes),
     );
-    final targetNumber = state.activeEpisode!.number + (forward ? 1 : -1);
-    if (targetNumber < 1 || targetNumber > episodes.length) return;
-    await loadEpisode(episodes.firstWhere((e) => e.number == targetNumber));
+
+    final currentIndex = episodes.indexWhere(
+      (e) => e.id == state.activeEpisode!.id,
+    );
+    if (currentIndex == -1) return;
+
+    final targetIndex = currentIndex + (forward ? 1 : -1);
+    if (targetIndex < 0 || targetIndex >= episodes.length) return;
+
+    await loadEpisode(episodes[targetIndex]);
+  }
+
+  bool get hasNextEpisode {
+    if (_media == null || state.activeEpisode == null) return false;
+    final episodesState = ref
+        .read(episodesListProvider(MediaArgs.fromMedia(_media!)))
+        .value;
+    if (episodesState != null) {
+      final episodes = episodesState.episodes;
+      final currentIndex = episodes.indexWhere(
+        (e) => e.id == state.activeEpisode!.id,
+      );
+      if (currentIndex != -1) {
+        return currentIndex < episodes.length - 1;
+      }
+    }
+
+    final total = _media!.episodes;
+    if (total != null && total > 0) {
+      return state.activeEpisode!.number < total;
+    }
+    return true; // Assume there is one if total is unknown, until proven otherwise
   }
 
   bool _matchesQuality(String candidate, String target) {
@@ -351,10 +423,30 @@ class PlayerController extends Notifier<PlayerState> {
 
       // Video Stream (mirror) Selection
       VideoStream activeStream = streams.first;
+
+      List<VideoStream> preferredTypeStreams = streams;
+      if (_preferredServerType != null) {
+        final isPrefDub = _preferredServerType == ServerType.dub;
+        final matchingStreams = streams.where((s) {
+          final sq = s.quality.toLowerCase();
+          final isDub = sq.contains('dub') || sq.contains('english');
+          return isPrefDub ? isDub : (!isDub);
+        }).toList();
+
+        if (matchingStreams.isNotEmpty) {
+          preferredTypeStreams = matchingStreams;
+          activeStream = matchingStreams.first;
+        }
+      }
+
       if (_preferredQuality != null && _preferredQuality != 'Auto') {
-        final qualityMatch = streams.firstWhereOrNull(
-          (s) => _matchesQuality(s.quality, _preferredQuality!),
-        );
+        final qualityMatch =
+            preferredTypeStreams.firstWhereOrNull(
+              (s) => _matchesQuality(s.quality, _preferredQuality!),
+            ) ??
+            streams.firstWhereOrNull(
+              (s) => _matchesQuality(s.quality, _preferredQuality!),
+            );
         if (qualityMatch != null) activeStream = qualityMatch;
       }
 
@@ -627,6 +719,52 @@ class PlayerController extends Notifier<PlayerState> {
       }
     } catch (_) {}
     return _cachedThumbnail;
+  }
+
+  Future<({bool success, String message})> takeAndShareScreenshot() async {
+    try {
+      ref.read(videoEngineProvider).pause();
+      final image = await _screenshot.capture(pixelRatio: 1.5);
+      if (image == null) {
+        return (success: false, message: 'Failed to capture screenshot.');
+      }
+
+      if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+        final now = DateTime.now();
+        final timestamp =
+            '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}_${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}${now.second.toString().padLeft(2, '0')}';
+        final defaultFileName = 'ShonenX_$timestamp.png';
+
+        final savePath = await FilePicker.platform.saveFile(
+          dialogTitle: 'Save Screenshot',
+          fileName: defaultFileName,
+          type: FileType.custom,
+          allowedExtensions: ['png'],
+        );
+
+        if (savePath == null) {
+          return (success: false, message: 'Save cancelled');
+        }
+
+        final file = File(savePath);
+        await file.writeAsBytes(image);
+
+        return (success: true, message: 'Screenshot saved to ${file.path}');
+      } else {
+        final tempDir = await getTemporaryDirectory();
+        final file = File(
+          '${tempDir.path}/screenshot_${DateTime.now().millisecondsSinceEpoch}.png',
+        );
+        await file.writeAsBytes(image);
+        await Share.shareXFiles(
+          [XFile(file.path)],
+          text: 'Screenshot from ${_media?.title.availableTitle ?? "ShonenX"}',
+        );
+        return (success: true, message: 'Screenshot captured');
+      }
+    } catch (e) {
+      return (success: false, message: 'Screenshot error: $e');
+    }
   }
 
   bool get _shouldCaptureThumbnail {

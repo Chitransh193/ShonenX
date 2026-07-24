@@ -1,16 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shonenx/shared/providers/ui_prefs_provider.dart';
+
 import 'package:shonenx/core/utils/responsive.dart';
+import 'package:shonenx/features/discovery/domain/media_args.dart';
 import 'package:shonenx/features/discovery/presentation/widgets/episodes_panel/episode_tiles.dart';
+import 'package:shonenx/features/discovery/presentation/widgets/sheets/batch_download_sheet.dart';
 import 'package:shonenx/features/discovery/providers/episodes_provider.dart';
 import 'package:shonenx/features/discovery/providers/matched_media_provider.dart';
+import 'package:shonenx/features/reader/providers/preferred_scanlator_provider.dart';
 import 'package:shonenx/shared/models/unified_episode.dart';
 import 'package:shonenx/shared/models/unified_media.dart';
+import 'package:shonenx/shared/providers/ui_prefs_provider.dart';
 import 'package:shonenx/shared/widgets/staggered_fade_in.dart';
-import 'package:shonenx/features/reader/providers/preferred_scanlator_provider.dart';
-import 'package:shonenx/features/discovery/presentation/widgets/sheets/batch_download_sheet.dart';
 import 'package:shonenx/source_engine/models/source_info.dart';
+
+import 'package:shonenx/features/history/providers/read_history_provider.dart';
+import 'package:shonenx/features/history/providers/watch_history_provider.dart';
+import 'package:shonenx/features/tracking/providers/media_tracking_provider.dart';
+import 'package:shonenx/features/tracking/providers/tracker_registry.dart';
 
 export 'episode_tiles.dart';
 
@@ -70,6 +77,19 @@ class _EpisodeListPanelState extends ConsumerState<EpisodeListPanel> {
   final ScrollController _scrollController = ScrollController();
   bool _hasAutoScrolled = false;
   bool _isRetrying = false;
+  int? _lastAutoChunkEpisode;
+  bool _hasInitializedSort = false;
+
+  @override
+  void didUpdateWidget(covariant EpisodeListPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.currentEpisodeNumber != widget.currentEpisodeNumber ||
+        oldWidget.media.id != widget.media.id) {
+      _hasAutoScrolled = false;
+      _lastAutoChunkEpisode = null;
+      _hasInitializedSort = false;
+    }
+  }
 
   @override
   void dispose() {
@@ -77,7 +97,7 @@ class _EpisodeListPanelState extends ConsumerState<EpisodeListPanel> {
     super.dispose();
   }
 
-  void _triggerRetry(MatchArgs matchArgs) {
+  void _triggerRetry(MediaArgs matchArgs) {
     if (_isRetrying) return;
     setState(() {
       _isRetrying = true;
@@ -107,10 +127,36 @@ class _EpisodeListPanelState extends ConsumerState<EpisodeListPanel> {
     final viewMode = ref.watch(
       uiPrefsProvider.select((s) => s.episodeViewMode),
     );
-    final matchArgs = MatchArgs.fromMedia(widget.media);
+    final matchArgs = MediaArgs.fromMedia(widget.media);
     final episodesAsync = ref.watch(episodesListProvider(matchArgs));
     final isBusy =
         _isRetrying || episodesAsync.isRefreshing || episodesAsync.isLoading;
+
+    final primaryTracker = ref.watch(primaryTrackerProvider);
+    final trackingState = ref.watch(
+      mediaTrackingProvider(
+        TrackingQuery(primaryTracker.type, widget.media.id, widget.media.type),
+      ),
+    );
+    final trackedProgress = trackingState.value?.progress.toDouble() ?? 0;
+
+    final watchHistoryEntries =
+        ref.watch(historyEpisodesProvider(widget.media.id)).value ?? [];
+    final readHistoryEntries =
+        ref.watch(historyChaptersProvider(widget.media.id)).value ?? [];
+
+    final historyWatchedSet = widget.media.type == MediaType.ANIME
+        ? watchHistoryEntries.map((e) => e.episodeNumber).toSet()
+        : readHistoryEntries.map((e) => e.chapterNumber).toSet();
+
+    final maxHistoryEp = historyWatchedSet.fold<double>(
+      0.0,
+      (max, epNum) => epNum > max ? epNum : max,
+    );
+
+    final effectiveWatchedProgress = widget.watchedProgress > 0
+        ? widget.watchedProgress
+        : (trackedProgress > 0 ? trackedProgress : maxHistoryEp);
 
     return episodesAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
@@ -229,14 +275,48 @@ class _EpisodeListPanelState extends ConsumerState<EpisodeListPanel> {
         // 4. Generate Chunks for the current season
         final uniqueNums = seasonEpisodes.map((e) => e.number).toSet().toList()
           ..sort();
+
+        if (!_hasInitializedSort && uniqueNums.isNotEmpty) {
+          _hasInitializedSort = true;
+          final maxEpNum = uniqueNums.last;
+          final currentProgress =
+              widget.currentEpisodeNumber ?? widget.watchedProgress;
+          if (maxEpNum > 0 && currentProgress >= maxEpNum * 0.5) {
+            _descending = true;
+          }
+        }
+
         final chunks = <_Chunk>[_Chunk('All', null, null)];
 
         if (uniqueNums.length > 100) {
           String fmt(num n) => n % 1 == 0 ? n.toInt().toString() : n.toString();
+          final rawChunks = <_Chunk>[];
           for (int i = 0; i < uniqueNums.length; i += 100) {
             final min = uniqueNums[i];
             final max = uniqueNums[(i + 99).clamp(0, uniqueNums.length - 1)];
-            chunks.add(_Chunk('${fmt(min)} – ${fmt(max)}', min, max));
+            rawChunks.add(_Chunk('${fmt(min)} – ${fmt(max)}', min, max));
+          }
+          if (_descending) {
+            chunks.addAll(rawChunks.reversed);
+          } else {
+            chunks.addAll(rawChunks);
+          }
+        }
+
+        if (chunks.length > 1 &&
+            widget.currentEpisodeNumber != null &&
+            _lastAutoChunkEpisode != widget.currentEpisodeNumber?.toInt()) {
+          _lastAutoChunkEpisode = widget.currentEpisodeNumber?.toInt();
+          final target = widget.currentEpisodeNumber!;
+          final autoIdx = chunks.indexWhere(
+            (c) =>
+                c.min != null &&
+                c.max != null &&
+                target >= c.min! &&
+                target <= c.max!,
+          );
+          if (autoIdx > 0) {
+            _chunkIndex = autoIdx;
           }
         }
 
@@ -365,107 +445,95 @@ class _EpisodeListPanelState extends ConsumerState<EpisodeListPanel> {
               index: staggerIndex++,
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(10, 5, 4, 8),
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    return SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: ConstrainedBox(
-                        constraints: BoxConstraints(
-                          minWidth: constraints.maxWidth,
-                        ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
                         child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                if (uniqueSeasons.length > 1) ...[
-                                  buildFilterCapsule<int?>(
-                                    current: activeSeason,
-                                    items: uniqueSeasons,
-                                    labelBuilder: (s) =>
-                                        s == null ? 'Specials' : 'S$s',
-                                    icon: Icons.layers_rounded,
-                                    onSelected: (s) => setState(() {
-                                      _selectedSeason = s;
-                                      _chunkIndex = 0;
-                                    }),
-                                  ),
-                                  const SizedBox(width: 8),
-                                ],
-                                if (chunks.length > 1) ...[
-                                  buildFilterCapsule<int>(
-                                    current: safeIdx,
-                                    items: List.generate(
-                                      chunks.length,
-                                      (i) => i,
-                                    ),
-                                    labelBuilder: (i) => chunks[i].label,
-                                    icon: Icons.tag_rounded,
-                                    onSelected: (i) =>
-                                        setState(() => _chunkIndex = i),
-                                  ),
-                                  const SizedBox(width: 8),
-                                ],
-                                if (uniqueSeasons.length > 1 ||
-                                    chunks.length > 1)
-                                  Text(
-                                    ' •  ',
-                                    style: TextStyle(
-                                      color: cs.onSurfaceVariant,
-                                    ),
-                                  ),
-                                Text(
-                                  '${finalEpisodes.length} ${widget.media.type == MediaType.MANGA ? 'ch' : 'ep'}',
-                                  style: Theme.of(context).textTheme.labelLarge
-                                      ?.copyWith(color: cs.onSurfaceVariant),
-                                ),
-                              ],
-                            ),
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const SizedBox(width: 16),
-                                if (widget.media.type == MediaType.ANIME &&
-                                    finalEpisodes.isNotEmpty)
-                                  IconButton(
-                                    onPressed: () => BatchDownloadSheet.show(
-                                      context,
-                                      finalEpisodes,
-                                      widget.watchedProgress,
-                                      state.source,
-                                      widget.media,
-                                    ),
-                                    icon: const Icon(
-                                      Icons.download_for_offline_outlined,
-                                    ),
-                                    iconSize: 20,
-                                    color: cs.primary,
-                                  ),
-                                _ViewModeToggle(
-                                  current: viewMode,
-                                  onChanged: (m) => ref
-                                      .read(uiPrefsProvider.notifier)
-                                      .updateEpisodeViewMode(m),
-                                ),
-                                IconButton(
-                                  onPressed: () => setState(
-                                    () => _descending = !_descending,
-                                  ),
-                                  icon: Icon(
-                                    _descending
-                                        ? Icons.arrow_downward
-                                        : Icons.arrow_upward,
-                                  ),
-                                  iconSize: 18,
-                                ),
-                              ],
+                            if (uniqueSeasons.length > 1) ...[
+                              buildFilterCapsule<int?>(
+                                current: activeSeason,
+                                items: uniqueSeasons,
+                                labelBuilder: (s) =>
+                                    s == null ? 'Specials' : 'S$s',
+                                icon: Icons.layers_rounded,
+                                onSelected: (s) => setState(() {
+                                  _selectedSeason = s;
+                                  _chunkIndex = 0;
+                                }),
+                              ),
+                              const SizedBox(width: 8),
+                            ],
+                            if (chunks.length > 1) ...[
+                              buildFilterCapsule<int>(
+                                current: safeIdx,
+                                items: List.generate(chunks.length, (i) => i),
+                                labelBuilder: (i) => chunks[i].label,
+                                icon: Icons.tag_rounded,
+                                onSelected: (i) =>
+                                    setState(() => _chunkIndex = i),
+                              ),
+                              const SizedBox(width: 8),
+                            ],
+                            Text(
+                              '${finalEpisodes.length} ${widget.media.type == MediaType.MANGA ? 'ch' : 'ep'}',
+                              style: Theme.of(context).textTheme.labelLarge
+                                  ?.copyWith(color: cs.onSurfaceVariant),
                             ),
                           ],
                         ),
                       ),
-                    );
-                  },
+                    ),
+                    const SizedBox(width: 8),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (widget.media.type == MediaType.ANIME &&
+                            finalEpisodes.isNotEmpty)
+                          IconButton(
+                            onPressed: () => BatchDownloadSheet.show(
+                              context,
+                              finalEpisodes,
+                              widget.watchedProgress,
+                              state.source,
+                              widget.media,
+                            ),
+                            icon: const Icon(
+                              Icons.download_for_offline_outlined,
+                            ),
+                            iconSize: 20,
+                            color: cs.primary,
+                            tooltip: 'Batch Download',
+                          ),
+                        _ViewModeToggle(
+                          current: viewMode,
+                          onChanged: (m) => ref
+                              .read(uiPrefsProvider.notifier)
+                              .updateEpisodeViewMode(m),
+                        ),
+                        IconButton(
+                          onPressed: () {
+                            setState(() {
+                              _descending = !_descending;
+                              _chunkIndex = 0;
+                            });
+                          },
+                          icon: Icon(
+                            _descending
+                                ? Icons.arrow_downward
+                                : Icons.arrow_upward,
+                          ),
+                          iconSize: 18,
+                          tooltip: _descending
+                              ? 'Sorted Newest First'
+                              : 'Sorted Oldest First',
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -483,6 +551,8 @@ class _EpisodeListPanelState extends ConsumerState<EpisodeListPanel> {
                   episodes: finalEpisodes,
                   source: state.source,
                   viewMode: viewMode,
+                  effectiveWatchedProgress: effectiveWatchedProgress,
+                  historyWatchedSet: historyWatchedSet,
                   currentIndex: finalEpisodes.indexWhere(
                     (ep) => ep.number == widget.currentEpisodeNumber,
                   ),
@@ -500,6 +570,8 @@ class _EpisodeListPanelState extends ConsumerState<EpisodeListPanel> {
     required List<UnifiedEpisode> episodes,
     required SourceInfo source,
     required EpisodeViewMode viewMode,
+    required double effectiveWatchedProgress,
+    required Set<double> historyWatchedSet,
     int currentIndex = -1,
   }) {
     return LayoutBuilder(
@@ -521,7 +593,7 @@ class _EpisodeListPanelState extends ConsumerState<EpisodeListPanel> {
 
         if (currentIndex >= 0 && !_hasAutoScrolled) {
           _hasAutoScrolled = true;
-          Future.delayed(const Duration(milliseconds: 500), () {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!mounted) return;
             if (!_scrollController.hasClients) return;
             final maxExt = _scrollController.position.maxScrollExtent;
@@ -579,11 +651,24 @@ class _EpisodeListPanelState extends ConsumerState<EpisodeListPanel> {
                 offset = boxPad + row * (boxSize + boxSpacing);
             }
 
-            _scrollController.animateTo(
-              offset.clamp(0.0, maxExt),
-              duration: const Duration(milliseconds: 1000),
-              curve: Curves.easeOutCubic,
-            );
+            final targetOffset = offset.clamp(0.0, maxExt);
+            final delta = (targetOffset - _scrollController.offset).abs();
+
+            if (delta > 200) {
+              final preOffset = (targetOffset - 60.0).clamp(0.0, maxExt);
+              _scrollController.jumpTo(preOffset);
+              _scrollController.animateTo(
+                targetOffset,
+                duration: const Duration(milliseconds: 150),
+                curve: Curves.easeOut,
+              );
+            } else if (delta > 0) {
+              _scrollController.animateTo(
+                targetOffset,
+                duration: const Duration(milliseconds: 200),
+                curve: Curves.easeOut,
+              );
+            }
           });
         }
 
@@ -597,7 +682,9 @@ class _EpisodeListPanelState extends ConsumerState<EpisodeListPanel> {
               itemBuilder: (context, i) {
                 final ep = episodes[i];
                 final isCurrent = widget.currentEpisodeNumber == ep.number;
-                final isWatched = widget.watchedProgress >= ep.number;
+                final isWatched =
+                    effectiveWatchedProgress >= ep.number ||
+                    historyWatchedSet.contains(ep.number);
 
                 return EpisodeClassicTile(
                   episode: ep,
@@ -630,7 +717,9 @@ class _EpisodeListPanelState extends ConsumerState<EpisodeListPanel> {
               itemBuilder: (context, i) {
                 final ep = episodes[i];
                 final isCurrent = widget.currentEpisodeNumber == ep.number;
-                final isWatched = widget.watchedProgress >= ep.number;
+                final isWatched =
+                    effectiveWatchedProgress >= ep.number ||
+                    historyWatchedSet.contains(ep.number);
 
                 return EpisodeCompactTile(
                   episode: ep,
@@ -684,7 +773,9 @@ class _EpisodeListPanelState extends ConsumerState<EpisodeListPanel> {
               itemBuilder: (context, i) {
                 final ep = episodes[i];
                 final isCurrent = widget.currentEpisodeNumber == ep.number;
-                final isWatched = widget.watchedProgress >= ep.number;
+                final isWatched =
+                    effectiveWatchedProgress >= ep.number ||
+                    historyWatchedSet.contains(ep.number);
 
                 return EpisodeCoverTile(
                   episode: ep,
@@ -738,7 +829,9 @@ class _EpisodeListPanelState extends ConsumerState<EpisodeListPanel> {
               itemBuilder: (context, i) {
                 final ep = episodes[i];
                 final isCurrent = widget.currentEpisodeNumber == ep.number;
-                final isWatched = widget.watchedProgress >= ep.number;
+                final isWatched =
+                    effectiveWatchedProgress >= ep.number ||
+                    historyWatchedSet.contains(ep.number);
 
                 return EpisodeGridTile(
                   episode: ep,
@@ -790,7 +883,9 @@ class _EpisodeListPanelState extends ConsumerState<EpisodeListPanel> {
               itemBuilder: (context, i) {
                 final ep = episodes[i];
                 final isCurrent = widget.currentEpisodeNumber == ep.number;
-                final isWatched = widget.watchedProgress >= ep.number;
+                final isWatched =
+                    effectiveWatchedProgress >= ep.number ||
+                    historyWatchedSet.contains(ep.number);
 
                 return EpisodeBoxTile(
                   episode: ep,
