@@ -5,9 +5,8 @@ import 'package:shonenx/core/utils/extensions.dart';
 import 'package:shonenx/features/discovery/domain/media_preference.dart';
 import 'package:shonenx/source_engine/models/source_info.dart';
 import 'package:shonenx/features/discovery/domain/media_args.dart';
-import 'package:shonenx/shared/models/unified_media.dart';
 import 'package:shonenx/features/tracking/domain/models/tracker_type.dart';
-import 'package:shonenx/source_engine/source_registry.dart';
+import 'package:shonenx/source_engine/utils/media_type_extensions.dart';
 
 const Object _sentinel = Object();
 
@@ -122,9 +121,9 @@ class MediaPreferenceNotifier extends AsyncNotifier<MediaPreferenceState> {
           ? null
           : await _migrateLegacyPreferences(rawPref);
 
-      final availableSources = args.type == MediaType.ANIME
-          ? await ref.watch(availableAnimeSourcesProvider.future)
-          : await ref.watch(availableMangaSourcesProvider.future);
+      final availableSources = await ref.watch(
+        args.type.availableSourcesProvider.future,
+      );
 
       if (availableSources.isEmpty) {
         throw StateError('no-sources');
@@ -182,13 +181,15 @@ class MediaPreferenceNotifier extends AsyncNotifier<MediaPreferenceState> {
     }
   }
 
-  void updateSource(SourceInfo sourceInfo) async {
+  Future<void> updateSource(SourceInfo sourceInfo) async {
     final log = _log.child('updateSource');
 
     log.i('Switch → ${sourceInfo.name}');
 
+    final currentState = await future;
+
     state = AsyncData(
-      state.value!.copyWith(
+      currentState.copyWith(
         sourceInfo: sourceInfo,
         matchedMediaId: null,
         matchedMediaTitle: null,
@@ -199,13 +200,18 @@ class MediaPreferenceNotifier extends AsyncNotifier<MediaPreferenceState> {
     log.s('Updated');
   }
 
-  void setManualMatch(String matchedMediaId, String matchedMediaTitle) {
+  Future<void> setManualMatch(
+    String matchedMediaId,
+    String matchedMediaTitle,
+  ) async {
     final log = _log.child('setManualMatch');
 
     log.i('Match → $matchedMediaTitle ($matchedMediaId)');
 
+    final currentState = await future;
+
     state = AsyncData(
-      state.value!.copyWith(
+      currentState.copyWith(
         matchedMediaId: matchedMediaId,
         matchedMediaTitle: matchedMediaTitle,
       ),
@@ -215,8 +221,11 @@ class MediaPreferenceNotifier extends AsyncNotifier<MediaPreferenceState> {
   }
 
   @Deprecated('Use setManualMatch instead')
-  void setManualOverrides(String matchedMediaId, String matchedMediaTitle) {
-    setManualMatch(matchedMediaId, matchedMediaTitle);
+  Future<void> setManualOverrides(
+    String matchedMediaId,
+    String matchedMediaTitle,
+  ) {
+    return setManualMatch(matchedMediaId, matchedMediaTitle);
   }
 
   Future<void> saveAutoMatch(
@@ -252,27 +261,29 @@ class MediaPreferenceNotifier extends AsyncNotifier<MediaPreferenceState> {
     }
   }
 
-  void setPreferredTracker(TrackerType trackerType) {
+  Future<void> setPreferredTracker(TrackerType trackerType) async {
     final log = _log.child('setPreferredTracker');
     log.i('Tracker → ${trackerType.displayName}');
 
-    state = AsyncData(state.value!.copyWith(preferredTracker: trackerType));
+    final currentState = await future;
+    state = AsyncData(currentState.copyWith(preferredTracker: trackerType));
 
     _saveToDb();
   }
 
   @Deprecated('Use setPreferredTracker instead')
-  void setPreferredAiringTracker(TrackerType trackerType) {
-    setPreferredTracker(trackerType);
+  Future<void> setPreferredAiringTracker(TrackerType trackerType) {
+    return setPreferredTracker(trackerType);
   }
 
-  void updatePrefs(
+  Future<void> updatePrefs(
     SourceInfo sourceInfo,
     String matchedMediaId,
     String matchedMediaTitle,
-  ) {
+  ) async {
+    final currentState = await future;
     state = AsyncData(
-      state.value!.copyWith(
+      currentState.copyWith(
         sourceInfo: sourceInfo,
         matchedMediaId: matchedMediaId,
         matchedMediaTitle: matchedMediaTitle,

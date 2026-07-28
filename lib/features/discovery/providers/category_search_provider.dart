@@ -1,12 +1,13 @@
 import 'package:collection/collection.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import 'package:shonenx/features/discovery/providers/discovery_prefs_provider.dart';
 import 'package:shonenx/features/tracking/domain/models/tracker_category.dart';
 import 'package:shonenx/shared/models/unified_media.dart';
-import 'package:shonenx/source_engine/source_engine_provider.dart';
-import 'package:shonenx/source_engine/source_registry.dart';
 import 'package:shonenx/shared/providers/content_prefs_provider.dart';
 import 'package:shonenx/source_engine/models/paginated_result.dart';
+import 'package:shonenx/source_engine/source_engine_provider.dart';
+import 'package:shonenx/source_engine/utils/media_type_extensions.dart';
 
 class CategorySearchArgs {
   final String category;
@@ -57,6 +58,7 @@ class CategorySearchNotifier
 
       final catLower = arg.category.toLowerCase();
       TrackerCategory? matchedCategory;
+
       if (catLower.contains('upcoming')) {
         matchedCategory = TrackerCategory.upcoming;
       } else if (catLower.contains('popular')) {
@@ -90,15 +92,12 @@ class CategorySearchNotifier
         );
       }
     } else {
-      final allAnimeSources = await ref.read(
-        availableAnimeSourcesProvider.future,
+      final allSources = await ref.read(
+        arg.type.availableSourcesProvider.future,
       );
-      final allMangaSources = await ref.read(
-        availableMangaSourcesProvider.future,
-      );
-      final allSources = arg.type == MediaType.ANIME
-          ? allAnimeSources
-          : allMangaSources;
+      if (!ref.mounted) {
+        return const PaginatedResult(items: [], hasNextPage: false);
+      }
 
       final activeSources = allSources
           .where((s) => prefs.activeSources.contains(s.id))
@@ -118,7 +117,7 @@ class CategorySearchNotifier
 
       if (targetSourceInfo != null) {
         try {
-          final source = arg.type == MediaType.ANIME
+          final source = arg.type.usesAnimeSources
               ? ref.read(animeSourceProvider(targetSourceInfo))
               : ref.read(mangaSourceProvider(targetSourceInfo));
           List<UnifiedMedia> items = [];
@@ -140,7 +139,7 @@ class CategorySearchNotifier
       // Fallback: Perform an actual text search across all active sources
       final futures = activeSources.map((info) async {
         try {
-          final source = arg.type == MediaType.ANIME
+          final source = arg.type.usesAnimeSources
               ? ref.read(animeSourceProvider(info))
               : ref.read(mangaSourceProvider(info));
           return await source.search(arg.category, arg.type, page: page);
@@ -169,6 +168,7 @@ class CategorySearchNotifier
 
     try {
       final newPageResult = await _fetchPage(_currentPage);
+      if (!ref.mounted) return;
       final newItems = newPageResult.items;
       final hasNext = newPageResult.hasNextPage && newItems.isNotEmpty;
       state = AsyncData(
@@ -180,6 +180,7 @@ class CategorySearchNotifier
         ),
       );
     } catch (e, _) {
+      if (!ref.mounted) return;
       _currentPage--;
       state = AsyncData(
         PaginatedResult(items: currentData.items, hasNextPage: false),

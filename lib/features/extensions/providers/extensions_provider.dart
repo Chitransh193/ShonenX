@@ -11,6 +11,7 @@ import 'package:shonenx/shared/providers/storage_provider.dart';
 import 'package:shonenx/shared/widgets/confirmation_bottom_sheet.dart';
 import 'package:shonenx/source_engine/models/source_info.dart';
 import 'package:shonenx/source_engine/source_registry.dart';
+import 'package:shonenx/source_engine/utils/source_invalidation.dart';
 
 final extensionsControllerProvider =
     NotifierProvider<ExtensionsController, Set<String>>(
@@ -31,10 +32,7 @@ class ExtensionsController extends Notifier<Set<String>> {
       try {
         final bridgeManager = Get.find<bridge.ExtensionManager>();
         await bridgeManager.refreshExtensions(refreshAvailableSource: true);
-        ref.invalidate(availableAnimeSourcesProvider);
-        ref.invalidate(availableMangaSourcesProvider);
-        ref.invalidate(availableNovelSourcesProvider);
-        ref.invalidate(allAvailableSourcesProvider);
+        ref.invalidateAllSources();
       } catch (_) {}
     });
   }
@@ -46,10 +44,7 @@ class ExtensionsController extends Notifier<Set<String>> {
       await bridge
           .getSourceManager(source.bridgeSource!)
           .installSource(source.bridgeSource!);
-      ref.invalidate(availableAnimeSourcesProvider);
-      ref.invalidate(availableMangaSourcesProvider);
-      ref.invalidate(availableNovelSourcesProvider);
-      ref.invalidate(allAvailableSourcesProvider);
+      ref.invalidateAllSources();
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -77,16 +72,18 @@ class ExtensionsController extends Notifier<Set<String>> {
   void uninstallVariantGroup(
     BuildContext context,
     String name,
+    List<UnifiedSource> groupSources,
     MediaType type,
   ) {
     ConfirmationBottomSheet.show(
       context,
       title: 'Uninstall Extension',
-      message: 'Are you sure you want to uninstall all variants of $name?',
+      message: 'Are you sure you want to uninstall $name?',
       confirmText: 'Uninstall',
       isDestructive: true,
       onConfirm: () async {
-        state = {...state, name};
+        final ids = groupSources.map((s) => s.id).toSet();
+        state = {...state, ...ids, name};
         try {
           final bridgeManager = Get.find<bridge.ExtensionManager>();
           final installed = switch (type) {
@@ -95,28 +92,30 @@ class ExtensionsController extends Notifier<Set<String>> {
             MediaType.NOVEL => bridgeManager.installedNovelExtensions,
             _ => bridgeManager.installedAnimeExtensions,
           };
-          final variants = installed
-              .where((e) => (e.name ?? 'N/A') == name)
+          final targetExts = installed
+              .where((e) => ids.contains(e.id) || (e.name ?? 'N/A') == name)
               .toList();
 
           await Future.wait(
-            variants.map((e) => bridge.getSourceManager(e).uninstallSource(e)),
+            targetExts.map(
+              (e) => bridge.getSourceManager(e).uninstallSource(e),
+            ),
           );
 
-          ref.invalidate(availableAnimeSourcesProvider);
-          ref.invalidate(availableMangaSourcesProvider);
-          ref.invalidate(availableNovelSourcesProvider);
-          ref.invalidate(allAvailableSourcesProvider);
+          ref.invalidateAllSources();
           if (context.mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text('Uninstalled all variants of $name'),
+                content: Text('Uninstalled $name'),
                 behavior: SnackBarBehavior.floating,
               ),
             );
           }
+        } catch (_) {
         } finally {
-          state = {...state}..remove(name);
+          state = {...state}
+            ..removeAll(ids)
+            ..remove(name);
         }
       },
     );
@@ -127,10 +126,14 @@ class ExtensionsController extends Notifier<Set<String>> {
     UnifiedSource source,
     MediaType type,
   ) {
+    final displayName = source.lang != null && source.lang != 'all'
+        ? '${source.name} (${source.lang!.toUpperCase()})'
+        : source.name;
+
     ConfirmationBottomSheet.show(
       context,
       title: 'Uninstall Extension',
-      message: 'Are you sure you want to uninstall ${source.name}?',
+      message: 'Are you sure you want to uninstall $displayName?',
       confirmText: 'Uninstall',
       isDestructive: true,
       onConfirm: () async {
@@ -146,14 +149,11 @@ class ExtensionsController extends Notifier<Set<String>> {
           final extSource = installed.firstWhere((e) => e.id == source.id);
           await bridge.getSourceManager(extSource).uninstallSource(extSource);
 
-          ref.invalidate(availableAnimeSourcesProvider);
-          ref.invalidate(availableMangaSourcesProvider);
-          ref.invalidate(availableNovelSourcesProvider);
-          ref.invalidate(allAvailableSourcesProvider);
+          ref.invalidateAllSources();
           if (context.mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text('${source.name} uninstalled'),
+                content: Text('$displayName uninstalled'),
                 behavior: SnackBarBehavior.floating,
               ),
             );
@@ -188,10 +188,7 @@ class ExtensionsController extends Notifier<Set<String>> {
     state = {...state, source.id};
     try {
       await bridge.getSourceManager(extSource).updateSource(extSource);
-      ref.invalidate(availableAnimeSourcesProvider);
-      ref.invalidate(availableMangaSourcesProvider);
-      ref.invalidate(availableNovelSourcesProvider);
-      ref.invalidate(allAvailableSourcesProvider);
+      ref.invalidateAllSources();
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -238,10 +235,7 @@ class ExtensionsController extends Notifier<Set<String>> {
         variants.map((e) => bridge.getSourceManager(e).updateSource(e)),
       );
 
-      ref.invalidate(availableAnimeSourcesProvider);
-      ref.invalidate(availableMangaSourcesProvider);
-      ref.invalidate(availableNovelSourcesProvider);
-      ref.invalidate(allAvailableSourcesProvider);
+      ref.invalidateAllSources();
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -525,15 +519,25 @@ class ExtensionsService {
     bool isInstalled,
     List<String> order,
   ) {
-    final Map<String, List<UnifiedSource>> groupedByName = {};
+    final Map<String, List<UnifiedSource>> inbuiltGroupedByName = {};
+    final Map<String, List<UnifiedSource>> extensionGroupedByName = {};
+
     for (final s in filteredSources) {
-      groupedByName.putIfAbsent(s.name, () => []).add(s);
+      if (s.isInbuilt) {
+        inbuiltGroupedByName.putIfAbsent(s.name, () => []).add(s);
+      } else {
+        extensionGroupedByName.putIfAbsent(s.name, () => []).add(s);
+      }
     }
 
     final Map<String, Map<String, List<UnifiedSource>>> groupedByLang = {};
 
-    for (final name in groupedByName.keys) {
-      final sources = groupedByName[name]!;
+    if (inbuiltGroupedByName.isNotEmpty) {
+      groupedByLang['Inbuilt'] = inbuiltGroupedByName;
+    }
+
+    for (final name in extensionGroupedByName.keys) {
+      final sources = extensionGroupedByName[name]!;
       String groupLang = 'All';
 
       if (sources.length > 1) {
@@ -568,6 +572,8 @@ class ExtensionsService {
 
     final sortedLangs = groupedByLang.keys.toList()
       ..sort((a, b) {
+        if (a == 'Inbuilt') return -1;
+        if (b == 'Inbuilt') return 1;
         if (a == 'All') return -1;
         if (b == 'All') return 1;
         return a.compareTo(b);
