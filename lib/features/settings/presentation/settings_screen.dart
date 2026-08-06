@@ -2,18 +2,19 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
-import 'package:shonenx/shared/widgets/svg_icon.dart';
 import 'package:url_launcher/url_launcher.dart';
+
+import 'package:shonenx/core/router/app_navigator.dart';
 import 'package:shonenx/features/settings/presentation/widgets/settings_ui_components.dart';
 import 'package:shonenx/shared/widgets/app_scaffold.dart';
+import 'package:shonenx/shared/widgets/svg_icon.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    ColorScheme.of(context);
+    final cs = ColorScheme.of(context);
 
     return AppScaffold(
       title: 'Settings',
@@ -27,46 +28,45 @@ class SettingsScreen extends ConsumerWidget {
                 icon: Icons.palette_outlined,
                 title: 'Appearance',
                 subtitle: 'Theme, pure black, accent colors',
-                onTap: () => context.push('/settings/theme'),
+                onTap: () => context.pushSettingsTheme(),
               ),
               SettingsNavTile(
                 icon: Icons.video_settings_outlined,
                 title: 'Player',
                 subtitle: 'Gestures, default quality, skips',
-                onTap: () => context.push('/settings/player'),
+                onTap: () => context.pushSettingsPlayer(),
               ),
               SettingsNavTile(
                 icon: Icons.chrome_reader_mode_outlined,
                 title: 'Reader',
                 subtitle: 'Reading mode, background, scale',
-                onTap: () => context.push('/settings/reader'),
+                onTap: () => context.pushSettingsReader(),
               ),
               SettingsNavTile(
                 icon: Icons.extension_outlined,
                 title: 'Extensions',
                 subtitle: 'External runtime engines & native sources',
-                onTap: () => context.push('/settings/extensions'),
-                onLongPress: () =>
-                    context.push('/settings/remote_config_editor'),
+                onTap: () => context.pushSettingsExtensions(),
+                onLongPress: () => context.pushSettingsRemoteConfigEditor(),
               ),
               SettingsNavTile(
                 icon: Icons.download_outlined,
                 title: 'Downloads',
                 subtitle: 'Download location, file naming',
-                onTap: () => context.push('/settings/downloads'),
+                onTap: () => context.pushSettingsDownloads(),
               ),
               SettingsNavTile(
                 icon: Icons.filter_alt_outlined,
                 title: 'Content',
                 subtitle: 'Content filters, 18+ toggle',
-                onTap: () => context.push('/settings/content'),
+                onTap: () => context.pushSettingsContent(),
               ),
               if (Platform.isAndroid) ...[
                 SettingsNavTile(
                   icon: Icons.security_outlined,
                   title: 'Permissions',
                   subtitle: 'Manage app permissions',
-                  onTap: () => context.push('/settings/permissions'),
+                  onTap: () => context.pushSettingsPermissions(),
                 ),
               ],
             ],
@@ -79,13 +79,13 @@ class SettingsScreen extends ConsumerWidget {
                 icon: Icons.sync_outlined,
                 title: 'Tracking',
                 subtitle: 'AniList, MyAnimeList connections',
-                onTap: () => context.push('/settings/tracking'),
+                onTap: () => context.pushSettingsTracking(),
               ),
               SettingsNavTile(
                 icon: Icons.import_export_outlined,
                 title: 'Backup & Restore',
                 subtitle: 'Export or import your data',
-                onTap: () => context.push('/settings/backup'),
+                onTap: () => context.pushSettingsBackup(),
               ),
             ],
           ),
@@ -97,13 +97,13 @@ class SettingsScreen extends ConsumerWidget {
                 icon: Icons.view_comfortable_outlined,
                 title: 'UI',
                 subtitle: 'UI settings',
-                onTap: () => context.push('/settings/ui'),
+                onTap: () => context.pushSettingsUi(),
               ),
               SettingsNavTile(
                 icon: Icons.home_outlined,
                 title: 'Home',
                 subtitle: 'Home screen settings',
-                onTap: () => context.push('/settings/home'),
+                onTap: () => context.pushSettingsHome(),
               ),
             ],
           ),
@@ -116,7 +116,7 @@ class SettingsScreen extends ConsumerWidget {
                   icon: Icons.notifications_active_outlined,
                   title: 'Manage Notifications',
                   subtitle: 'Manage your active subscriptions and reminders',
-                  onTap: () => context.push('/settings/notifications'),
+                  onTap: () => context.pushSettingsNotifications(),
                 ),
               ],
             ),
@@ -128,19 +128,38 @@ class SettingsScreen extends ConsumerWidget {
                 icon: Icons.storage_outlined,
                 title: 'Cache Manager',
                 subtitle: 'Clear cache and thumbnails',
-                onTap: () => context.push('/settings/cache'),
+                onTap: () => context.pushSettingsCache(),
               ),
               SettingsNavTile(
                 icon: Icons.system_update_outlined,
                 title: 'Updates',
                 subtitle: 'Check for updates and pre-release preferences',
-                onTap: () => context.push('/settings/updates'),
+                onTap: () => context.pushSettingsUpdates(),
               ),
               SettingsNavTile(
                 icon: Icons.info_outline_rounded,
                 title: 'About',
                 subtitle: 'Version, developer, and links',
-                onTap: () => context.push('/settings/about'),
+                onTap: () => context.pushSettingsAbout(),
+              ),
+            ],
+          ),
+
+          SettingsSection(
+            title: 'Integrations',
+            children: [
+              SettingsNavTile(
+                leading: SvgIcon(
+                  '''<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24">
+                    <path d="M0 0h24v24H0z" fill="none" />
+                    <path fill="currentColor" d="M18.59 5.89c-1.23-.57-2.54-.99-3.92-1.23c-.17.3-.37.71-.5 1.04c-1.46-.22-2.91-.22-4.34 0c-.14-.33-.34-.74-.51-1.04c-1.38.24-2.69.66-3.92 1.23c-2.48 3.74-3.15 7.39-2.82 10.98c1.65 1.23 3.24 1.97 4.81 2.46c.39-.53.73-1.1 1.03-1.69c-.57-.21-1.11-.48-1.62-.79c.14-.1.27-.21.4-.31c3.13 1.46 6.52 1.46 9.61 0c.13.11.26.21.4.31c-.51.31-1.06.57-1.62.79c.3.59.64 1.16 1.03 1.69c1.57-.49 3.17-1.23 4.81-2.46c.39-4.17-.67-7.78-2.82-10.98Zm-9.75 8.78c-.94 0-1.71-.87-1.71-1.94s.75-1.94 1.71-1.94s1.72.87 1.71 1.94c0 1.06-.75 1.94-1.71 1.94m6.31 0c-.94 0-1.71-.87-1.71-1.94s.75-1.94 1.71-1.94s1.72.87 1.71 1.94c0 1.06-.75 1.94-1.71 1.94" />
+                  </svg>
+                ''',
+                  color: cs.primary,
+                ),
+                title: 'Discord RPC',
+                subtitle: 'Send Rich Presence to Discord',
+                onTap: context.pushSettingsDiscord,
               ),
             ],
           ),
@@ -152,19 +171,19 @@ class SettingsScreen extends ConsumerWidget {
                 icon: Icons.auto_fix_high_outlined,
                 title: 'Troubleshoot & Repair',
                 subtitle: 'Force fix missing episodes and broken matches',
-                onTap: () => context.push('/settings/troubleshoot'),
+                onTap: () => context.pushSettingsTroubleshoot(),
               ),
               SettingsNavTile(
                 icon: Icons.bug_report_outlined,
                 title: 'Debug',
                 subtitle: 'Test notifications and UI components',
-                onTap: () => context.push('/settings/debug'),
+                onTap: () => context.pushSettingsDebug(),
               ),
               SettingsNavTile(
                 icon: Icons.article_outlined,
                 title: 'Logs',
                 subtitle: 'View, copy, and export app logs',
-                onTap: () => context.push('/settings/logs'),
+                onTap: () => context.pushSettingsLogs(),
               ),
             ],
           ),

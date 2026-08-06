@@ -5,10 +5,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:share_plus/share_plus.dart';
 
+import 'package:shonenx/core/router/app_navigator.dart';
 import 'package:shonenx/features/auth/providers/auth_provider.dart';
 import 'package:shonenx/features/comments/presentation/widgets/comments_tab.dart';
 import 'package:shonenx/features/discovery/presentation/widgets/tabs/about_tab.dart';
 import 'package:shonenx/features/discovery/presentation/widgets/tabs/episodes_tab.dart';
+import 'package:shonenx/features/discord/providers/discord_rpc_provider.dart';
 import 'package:shonenx/features/discovery/providers/details_provider.dart';
 import 'package:shonenx/features/downloads/domain/models/download_task.dart';
 import 'package:shonenx/features/downloads/providers/download_provider.dart';
@@ -96,9 +98,12 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen>
     return false;
   }
 
+  late final DiscordRpcNotifier _rpcNotifier;
+
   @override
   void initState() {
     super.initState();
+    _rpcNotifier = ref.read(discordRpcProvider.notifier);
     _tabController = TabController(
       length: 2,
       vsync: this,
@@ -107,12 +112,13 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen>
     _keyboardFocusNode = FocusNode();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      _rpcNotifier.updateMediaPresence(widget.media);
       _autoLinkPrimaryTracker();
       if (!mounted) return;
       if (widget.autoPlayMode is PlayerMode) {
-        context.push('/player', extra: widget.autoPlayMode);
+        context.pushPlayer(widget.autoPlayMode as PlayerMode);
       } else if (widget.autoPlayMode is ReaderModeOnline) {
-        context.push('/reader', extra: widget.autoPlayMode);
+        context.pushReader(widget.autoPlayMode as ReaderModeOnline);
       }
     });
   }
@@ -121,7 +127,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen>
   void dispose() {
     _tabController.dispose();
     _keyboardFocusNode.dispose();
-
+    _rpcNotifier.updateBrowsingPresence();
     super.dispose();
   }
 
@@ -160,16 +166,22 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen>
     final theme = Theme.of(context);
     final textTheme = theme.textTheme;
     final colorScheme = theme.colorScheme;
-    final detailsState = ref.watch(
-      detailsProvider(
-        DetailsArgs(
-          widget.media.id,
-          widget.mediaType,
-          sourceId: widget.media.sourceId,
-          trackerId: widget.media.providerId,
-        ),
-      ),
+    final detailsArgs = DetailsArgs(
+      widget.media.id,
+      widget.mediaType,
+      sourceId: widget.media.sourceId,
+      trackerId: widget.media.providerId,
     );
+
+    final detailsState = ref.watch(detailsProvider(detailsArgs));
+
+    ref.listen(detailsProvider(detailsArgs), (prev, next) {
+      if (next.value != null) {
+        final mergedMedia = next.value!.merge(widget.media);
+        _rpcNotifier.updateMediaPresence(mergedMedia);
+      }
+    });
+
     final uiRoundness = ref.watch(
       themePrefsProvider.select((s) => s.uiRoundness),
     );
@@ -814,7 +826,7 @@ class _DownloadAppBarButton extends ConsumerWidget {
         label: Text(activeCount.toString()),
         offset: const Offset(2, -2),
         child: AppIconButton(
-          onPressed: () => context.push('/downloads'),
+          onPressed: () => context.pushDownloads(),
           backgroundColor: colorScheme.primaryContainer,
           foregroundColor: colorScheme.onPrimaryContainer,
           icon: Stack(

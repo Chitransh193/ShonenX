@@ -1,7 +1,13 @@
+import 'dart:io';
 import 'dart:ui';
 import 'package:dynamic_color/dynamic_color.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'package:flutter_single_instance/flutter_single_instance.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:shonenx/app_init.dart';
 import 'package:shonenx/shared/providers/database_provider.dart';
 import 'package:shonenx/shared/providers/storage_provider.dart';
@@ -12,13 +18,54 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shonenx/core/remote_config/ui/remote_config_listener.dart';
 import 'package:shonenx/core/theme/app_theme.dart';
 import 'package:shonenx/core/utils/app_logger.dart';
+import 'package:shonenx/features/discord/providers/discord_rpc_provider.dart';
 import 'package:shonenx/shared/widgets/global_background.dart';
 
 final _log = AppLogger.scope('Main');
 final _riverpodLog = AppLogger.scope('RiverpodObserver');
 
+WebViewEnvironment? webViewEnvironment;
+
 void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
+    try {
+      final availableVersion = await WebViewEnvironment.getAvailableVersion();
+      if (availableVersion != null) {
+        final document = await getApplicationDocumentsDirectory();
+        webViewEnvironment = await WebViewEnvironment.create(
+          settings: WebViewEnvironmentSettings(
+            userDataFolder: p.join(document.path, 'flutter_inappwebview'),
+          ),
+        );
+      }
+    } catch (e) {
+      _log.e('Failed to initialize WebViewEnvironment: $e');
+    }
+  }
+
+  if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+    if (!await FlutterSingleInstance().isFirstInstance()) {
+      await FlutterSingleInstance().focus();
+      exit(0);
+    }
+  }
+
+  FlutterError.onError = (details) {
+    FlutterError.presentError(details);
+    _log.e(
+      'FlutterError: ${details.exception}',
+      details.exception,
+      details.stack,
+    );
+  };
+
+  PlatformDispatcher.instance.onError = (error, stack) {
+    _log.e('PlatformDispatcherError: $error', error, stack);
+    return true;
+  };
+
   final log = _log.child('main');
   try {
     await AppLogger.init();
@@ -54,7 +101,7 @@ void main(List<String> args) async {
       ),
     );
   } catch (e, st) {
-    _log.e(e.toString(), st);
+    _log.e(e.toString(), e, st);
 
     runApp(
       MaterialApp(
@@ -89,6 +136,9 @@ class ShonenXApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final log = _log.child('build');
+
+    // Eagerly initialize Discord RPC at app startup / hot restart
+    ref.listen(discordRpcProvider, (_, __) {});
 
     final themePrefs = ref.watch(themePrefsProvider);
     log.d('Theme changed: ${themePrefs.themeMode}');
