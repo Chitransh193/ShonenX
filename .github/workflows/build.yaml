@@ -209,7 +209,7 @@ jobs:
 
       - name: Enable Linux config
         run: flutter config --enable-linux-desktop
-
+        
       - name: Resolve Dependencies
         shell: bash
         run: |
@@ -220,10 +220,10 @@ jobs:
             echo "Running flutter pub get..."
             flutter pub get
           fi
-
-      - name: Build Linux app
-        run: flutter build linux --release --dart-define-from-file=keys.json -v
-        
+          # Clean Cargo cache to force fresh compilation
+          rm -rf ~/.cargo/registry/cache
+          rm -rf ~/.cargo/registry/index
+       
       - name: Upload Linux Artifacts
         uses: actions/upload-artifact@v4
         with:
