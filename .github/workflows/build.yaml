@@ -81,20 +81,17 @@ jobs:
         with:
           distribution: temurin
           java-version: 21
-          cache: 'gradle'
+
+      - name: Setup Rust for Android
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          # Adding standard Android cross-compilation targets for Rust
+          targets: aarch64-linux-android, armv7-linux-androideabi, x86_64-linux-android
 
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: 3.35.7
-          cache: true
-
-      - name: Cache Pub dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.pub-cache
-          key: ${{ runner.os }}-pub-${{ hashFiles('**/pubspec.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-pub-
+          cache: false
 
       - name: Decode keystore
         run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > android/app/upload-keystore.jks
@@ -128,14 +125,14 @@ jobs:
         run: |
           if [ "${{ github.event.inputs.upgrade_dependencies }}" == 'true' ]; then
             echo "Running flutter pub upgrade..."
-            flutter pub upgrade
+            flutter pub upgrade -v
           else
             echo "Running flutter pub get..."
-            flutter pub get
+            flutter pub get -v
           fi
 
       - name: Build APKs
-        run: flutter build apk --release --split-per-abi --dart-define-from-file=keys.json
+        run: flutter build apk --release -v --split-per-abi --dart-define-from-file=keys.json
 
       - name: Upload Android Artifacts
         uses: actions/upload-artifact@v4
@@ -150,10 +147,18 @@ jobs:
       image: archlinux:base-devel
 
     steps:
-      - name: Install system dependencies
+      - name: Install system dependencies & optimize Arch container
         run: |
-          pacman -Syu --noconfirm
-          pacman -S --noconfirm git jq zip unzip curl xz tar clang cmake ninja pkgconf gtk3 libsecret webkit2gtk-4.1 wpewebkit libwpe wpebackend-fdo mpv alsa-lib
+          # Replaced bare 'rust' with 'rustup'
+          pacman -Syu --noconfirm git jq zip unzip curl xz tar clang cmake ninja pkgconf gtk3 libsecret webkit2gtk-4.1 wpewebkit libwpe wpebackend-fdo mpv alsa-lib rustup
+          # Clean pacman cache to save runner disk space
+          pacman -Scc --noconfirm
+          
+      - name: Setup Rust toolchain (Linux)
+        run: |
+          # Explicitly set default stable toolchain inside the container
+          rustup default stable
+          
       - name: Trust git directory
         run: git config --global --add safe.directory '*'
 
@@ -182,15 +187,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: 3.35.7
-          cache: true
-
-      - name: Cache Pub dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.pub-cache
-          key: ${{ runner.os }}-pub-${{ hashFiles('**/pubspec.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-pub-
+          cache: false
 
       - name: Create env file
         run: |
@@ -215,17 +212,14 @@ jobs:
         run: |
           if [ "${{ github.event.inputs.upgrade_dependencies }}" == 'true' ]; then
             echo "Running flutter pub upgrade..."
-            flutter pub upgrade
+            flutter pub upgrade -v
           else
             echo "Running flutter pub get..."
-            flutter pub get
+            flutter pub get -v
           fi
-          # Clean Cargo cache to force fresh compilation
-          rm -rf ~/.cargo/registry/cache
-          rm -rf ~/.cargo/registry/index
 
       - name: Build Linux
-        run: flutter build linux --release --dart-define-from-file=keys.json
+        run: flutter build linux --release -v --dart-define-from-file=keys.json
        
       - name: Upload Linux Artifacts
         uses: actions/upload-artifact@v4
@@ -241,6 +235,9 @@ jobs:
         with:
           submodules: recursive
           token: ${{ secrets.SUBMODULE_PAT }}
+
+      - name: Setup Rust toolchain (Windows)
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Override pubspec.yaml version
         if: github.event.inputs.release_tag != ''
@@ -262,15 +259,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: 3.35.7
-          cache: true
-
-      - name: Cache Pub dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~\AppData\Local\Pub\Cache
-          key: ${{ runner.os }}-pub-${{ hashFiles('**/pubspec.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-pub-
+          cache: false
 
       - name: Enable Windows config
         run: flutter config --enable-windows-desktop
@@ -296,18 +285,18 @@ jobs:
         run: |
           if [ "${{ github.event.inputs.upgrade_dependencies }}" == 'true' ]; then
             echo "Running flutter pub upgrade..."
-            flutter pub upgrade
+            flutter pub upgrade -v
           else
             echo "Running flutter pub get..."
-            flutter pub get
+            flutter pub get -v
           fi
 
       - name: Build Windows app
         shell: bash
         run: |
-          flutter build windows --release --dart-define-from-file=keys.json || {
+          flutter build windows --release -v --dart-define-from-file=keys.json || {
             echo "First build failed (likely due to media_kit libmpv download race condition). Retrying..."
-            flutter build windows --release --dart-define-from-file=keys.json
+            flutter build windows --release -v --dart-define-from-file=keys.json
           }
 
       - name: Build installer (InnoBundle)
@@ -382,7 +371,6 @@ jobs:
           set -euo pipefail
           git fetch --tags --force
 
-          # FIX: Sort tags by semantic versioning strictly, ignoring commit ancestry graph
           if git rev-parse -q --verify "refs/tags/$CURRENT_TAG" >/dev/null; then
             echo "Tag $CURRENT_TAG already exists. Finding the previous tag by version..."
             PREV_TAG=$(git tag --sort=-v:refname | grep -A 1 "^${CURRENT_TAG}$" | tail -n 1)
