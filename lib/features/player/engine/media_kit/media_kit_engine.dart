@@ -9,12 +9,15 @@ import 'package:shonenx/features/player/domain/subtitle_prefs.dart';
 import 'package:shonenx/features/player/engine/video_engine.dart';
 import 'package:shonenx/features/player/presentation/widgets/media_kit/media_kit_settings.dart';
 import 'package:shonenx/shared/models/video_stream.dart' as stream;
+import 'package:shonenx/core/utils/app_logger.dart';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shonenx/features/player/providers/video_engine_provider.dart';
 import 'package:shonenx/features/player/providers/subtitle_prefs_provider.dart';
 
 class MediaKitEngine implements VideoEngine {
+  static final _log = AppLogger.scope('MediaKitEngine');
+
   late final Player _player;
   late final VideoController _controller;
 
@@ -26,55 +29,68 @@ class MediaKitEngine implements VideoEngine {
   StreamSubscription<Duration>? _positionSubscription;
 
   Future<void> updatePrefs(MediaKitPrefs newPrefs) async {
+    _log.d('Updating preferences');
     if (_disposed) return;
     prefs = newPrefs;
 
     final player = _player.platform;
     if (player is! NativePlayer) return;
 
+    Future<void> setPropSafe(String key, String value) async {
+      if (_disposed) return;
+      try {
+        await player.setProperty(key, value);
+      } catch (e) {
+        _log.w('Failed to set property $key=$value: $e');
+      }
+    }
+
+    await setPropSafe('audio-channels', prefs.audioChannel.value);
+    await setPropSafe('volume-max', '200');
+
     try {
-      await player.setProperty('audio-channels', prefs.audioChannel.value);
-      if (_disposed) return;
-      await player.setProperty('volume-max', '200');
-      if (_disposed) return;
       await _player.setVolume(prefs.boostVolume ? 140 : 100);
-      if (_disposed) return;
+    } catch (_) {}
 
-      await player.setProperty('cache', 'yes');
-      await player.setProperty('demuxer-seekable-cache', 'yes');
-      await player.setProperty(
-        'demuxer-max-bytes',
-        '154857600',
-      ); // 150MB buffer for smooth 4K/1080p
-      await player.setProperty(
-        'demuxer-max-back-bytes',
-        '52428800',
-      ); // 50MB back buffer
-      await player.setProperty(
-        'demuxer-lavf-probesize',
-        '5000000',
-      ); // 5MB probe size
-      await player.setProperty('demuxer-lavf-analyzeduration', '5000000');
+    if (prefs.audioNormalizePreset != MediaKitAudioNormalizePreset.none) {
+      await setPropSafe('af', prefs.audioNormalizePreset.filter);
+    } else {
+      await setPropSafe('af', '');
+    }
 
-      final readaheadSecs = prefs.maxBuffer.inSeconds < 60
-          ? '60'
-          : prefs.maxBuffer.inSeconds.toString();
-      await player.setProperty('cache-secs', readaheadSecs);
-      await player.setProperty('demuxer-readahead-secs', readaheadSecs);
+    await setPropSafe('cache', 'yes');
+    await setPropSafe('demuxer-seekable-cache', 'yes');
+    await setPropSafe('demuxer-max-bytes', '154857600');
+    await setPropSafe('demuxer-max-back-bytes', '52428800');
+    await setPropSafe('demuxer-lavf-probesize', '5000000');
+    await setPropSafe('demuxer-lavf-analyzeduration', '5000000');
 
-      if (prefs.rawConfiguration.isNotEmpty) {
-        for (final line in prefs.rawConfiguration.split('\n')) {
-          final trimmed = line.trim();
-          if (trimmed.isEmpty || trimmed.startsWith('#')) continue;
-          final parts = trimmed.split('=');
-          if (parts.length == 2) {
-            await player.setProperty(parts[0].trim(), parts[1].trim());
-          } else if (parts.length == 1) {
-            await player.setProperty(parts[0].trim(), 'yes');
-          }
+    final readaheadSecs = prefs.maxBuffer.inSeconds < 60
+        ? '60'
+        : prefs.maxBuffer.inSeconds.toString();
+    await setPropSafe('cache-secs', readaheadSecs);
+    await setPropSafe('demuxer-readahead-secs', readaheadSecs);
+
+    await setPropSafe('brightness', prefs.colorPreset.brightness.toString());
+    await setPropSafe('contrast', prefs.colorPreset.contrast.toString());
+    await setPropSafe('saturation', prefs.colorPreset.saturation.toString());
+    await setPropSafe('gamma', prefs.colorPreset.gamma.toString());
+    await setPropSafe('hue', prefs.colorPreset.hue.toString());
+
+    if (prefs.rawConfiguration.isNotEmpty) {
+      for (final line in prefs.rawConfiguration.split('\n')) {
+        final trimmed = line.trim();
+        if (trimmed.isEmpty || trimmed.startsWith('#')) continue;
+        final index = trimmed.indexOf('=');
+
+        if (index != -1) {
+          final key = trimmed.substring(0, index).trim();
+          final value = trimmed.substring(index + 1).trim();
+
+          await setPropSafe(key, value);
         }
       }
-    } catch (_) {}
+    }
   }
 
   final List<StreamSubscription> _subscriptions = [];
@@ -187,6 +203,7 @@ class MediaKitEngine implements VideoEngine {
     stream.SubtitleTrack? subtitle,
     Duration? startAt,
   }) async {
+    _log.i('Initializing player with URL: ${stream.url}');
     final media = Media(stream.url, httpHeaders: stream.headers);
 
     await _player.open(media, play: true);
@@ -250,6 +267,7 @@ class MediaKitEngine implements VideoEngine {
 
   @override
   Future<void> changeQuality(stream.VideoStream newStream) async {
+    _log.i('Changing quality to URL: ${newStream.url}');
     final currentPos = _player.state.position;
 
     await _player.open(Media(newStream.url, httpHeaders: newStream.headers));
@@ -262,8 +280,10 @@ class MediaKitEngine implements VideoEngine {
   @override
   Future<void> setSubtitle(stream.SubtitleTrack? subtitle) async {
     if (subtitle == null || subtitle.url.isEmpty) {
+      _log.d('Disabling subtitle');
       await _player.setSubtitleTrack(SubtitleTrack.no());
     } else {
+      _log.d('Setting subtitle: ${subtitle.url} (lang: ${subtitle.language})');
       await _player.setSubtitleTrack(
         SubtitleTrack.uri(subtitle.url, language: subtitle.language),
       );
@@ -298,14 +318,17 @@ class MediaKitEngine implements VideoEngine {
   @override
   Future<void> setAudioTrack(stream.AudioTrack track) async {
     if (track.id == 'auto') {
+      _log.d('Setting audio track: auto');
       await _player.setAudioTrack(AudioTrack.auto());
     } else if (track.id == 'no') {
+      _log.d('Disabling audio track');
       await _player.setAudioTrack(AudioTrack.no());
     } else {
       final target = _player.state.tracks.audio.firstWhere(
         (t) => t.id == track.id,
         orElse: () => AudioTrack.auto(),
       );
+      _log.d('Setting audio track: ${target.id} (${target.title})');
       await _player.setAudioTrack(target);
     }
   }
@@ -317,6 +340,7 @@ class MediaKitEngine implements VideoEngine {
 
   @override
   Future<void> dispose() async {
+    _log.i('Disposing engine');
     _disposed = true;
     await _positionSubscription?.cancel();
     for (final sub in _subscriptions) {
