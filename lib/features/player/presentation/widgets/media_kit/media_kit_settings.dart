@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shonenx/features/player/domain/media_kit_prefs.dart';
 import 'package:shonenx/features/player/providers/media_kit_prefs_provider.dart';
+import 'package:shonenx/shared/widgets/app_dialog.dart';
 import 'package:shonenx/features/settings/presentation/widgets/raw_config_override_sheet.dart';
 import 'package:shonenx/features/settings/presentation/widgets/settings_ui_components.dart';
 import 'package:shonenx/shared/widgets/app_bottom_sheet.dart';
@@ -79,6 +80,19 @@ class MediaKitSettings extends ConsumerWidget {
               onChanged: (value) {
                 if (value != null) {
                   prefsNotifier.updatePrefs(prefs.copyWith(vo: value));
+                }
+              },
+            ),
+            SettingsDropdownTile<MediaKitColorPreset>(
+              icon: Icons.palette_outlined,
+              title: 'Color Preset',
+              value: prefs.colorPreset,
+              items: MediaKitColorPreset.values
+                  .map((p) => DropdownMenuItem(value: p, child: Text(p.label)))
+                  .toList(),
+              onChanged: (value) {
+                if (value != null) {
+                  prefsNotifier.updatePrefs(prefs.copyWith(colorPreset: value));
                 }
               },
             ),
@@ -168,6 +182,52 @@ class MediaKitSettings extends ConsumerWidget {
               onChanged: (value) =>
                   prefsNotifier.updatePrefs(prefs.copyWith(boostVolume: value)),
             ),
+            Row(
+              children: [
+                Expanded(
+                  child: SettingsDropdownTile<MediaKitAudioNormalizePreset>(
+                    icon: Icons.graphic_eq_rounded,
+                    title: 'Volume Stabilization',
+                    value: prefs.audioNormalizePreset,
+                    items: MediaKitAudioNormalizePreset.values
+                        .map(
+                          (p) =>
+                              DropdownMenuItem(value: p, child: Text(p.label)),
+                        )
+                        .toList(),
+                    onChanged: (value) {
+                      if (value != null) {
+                        prefsNotifier.updatePrefs(
+                          prefs.copyWith(audioNormalizePreset: value),
+                        );
+                      }
+                    },
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.info_outline, size: 20),
+                  tooltip: 'Restart Required',
+                  onPressed: () {
+                    AppDialog.show(
+                      context: context,
+                      title: 'Restart Required',
+                      child: const Text(
+                        'Changing the audio stabilization preset requires '
+                        'the player to be restarted for the changes to take effect.',
+                        style: TextStyle(height: 1.5),
+                      ),
+                      actions: [
+                        FilledButton(
+                          onPressed: () => Navigator.pop(context),
+                          child: const Text('OK'),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+                const SizedBox(width: 8),
+              ],
+            ),
             SettingsActionTile(
               icon: Icons.code_rounded,
               title: 'Raw Configuration Overrides',
@@ -175,15 +235,13 @@ class MediaKitSettings extends ConsumerWidget {
                   ? 'Caution: Inject raw MPV options'
                   : 'Configured (${prefs.rawConfiguration.split("\n").length} overrides)',
               onTap: () {
-                showDialog(
+                RawConfigOverrideSheet.show(
                   context: context,
-                  builder: (_) => RawConfigOverrideSheet(
-                    title: 'MPV Raw Configuration',
-                    initialValue: prefs.rawConfiguration,
-                    hintText: 'e.g.\ndemuxer-max-bytes=100M\ncache=yes',
-                    onSave: (val) => prefsNotifier.updatePrefs(
-                      prefs.copyWith(rawConfiguration: val),
-                    ),
+                  title: 'MPV Raw Configuration',
+                  initialValue: prefs.rawConfiguration,
+                  hintText: 'e.g.\ndemuxer-max-bytes=100M\ncache=yes',
+                  onSave: (val) => prefsNotifier.updatePrefs(
+                    prefs.copyWith(rawConfiguration: val),
                   ),
                 );
               },
