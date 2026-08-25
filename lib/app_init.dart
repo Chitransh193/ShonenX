@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:anymex_extension_runtime_bridge/Settings/KvStore.dart';
@@ -54,11 +55,8 @@ class AppInit {
     await _initDatabase();
     log.s('Database initialized');
 
-    await _cleanupOldDslProviders();
-    log.s('Old DSL providers cleaned up');
-
-    await _initNotifications();
-    log.s('Notifications initialized');
+    unawaited(_cleanupOldDslProviders());
+    unawaited(_initNotifications());
 
     log.section('DONE');
 
@@ -168,8 +166,8 @@ class AppInit {
                 ..preferredSourceId = old.preferredSourceId
                 ..preferredSourceName = old.preferredSourceName
                 ..preferredSourceType = old.preferredSourceType
-                ..manualOverrideId = old.manualOverrideId
-                ..manualOverrideTitle = old.manualOverrideTitle,
+                ..matchedMediaId = old.manualOverrideId
+                ..matchedMediaTitle = old.manualOverrideTitle,
             )
             .toList();
 

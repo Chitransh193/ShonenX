@@ -44,12 +44,22 @@ class MediaCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final uiState = ref.watch(uiPrefsProvider);
-    final isWideMode = uiState.isMediaCardWide(style.name);
-    final scale = ref.watch(themePrefsProvider).uiScaleFactor;
+    final isWideMode = ref.watch(
+      uiPrefsProvider.select((s) => s.isMediaCardWide(style.name)),
+    );
+    final showRatings = ref.watch(
+      uiPrefsProvider.select((s) => s.showCardRatings),
+    );
+    final showYear = ref.watch(uiPrefsProvider.select((s) => s.showCardYear));
+    final showGenres = ref.watch(
+      uiPrefsProvider.select((s) => s.showCardGenres),
+    );
+    final scale = ref.watch(themePrefsProvider.select((s) => s.uiScaleFactor));
     final layout = style.getScaledLayout(scale, isWideMode: isWideMode);
 
-    return RepaintBoundary(
+    return SizedBox(
+      width: layout.width,
+      height: layout.height,
       child: FocusHoverDetector(
         onTap: onTap,
         onSecondaryTap: onSecondaryTap,
@@ -77,11 +87,11 @@ class MediaCard extends ConsumerWidget {
               heroTag: tag,
               badgeText: format,
               topRightBadge: badge,
-              score: uiState.showCardRatings ? score : null,
+              score: showRatings ? score : null,
               subtitle: subtitle,
-              year: uiState.showCardYear ? year : null,
+              year: showYear ? year : null,
               status: status,
-              genres: uiState.showCardGenres ? genres : null,
+              genres: showGenres ? genres : null,
             ),
           );
 
@@ -94,38 +104,17 @@ class MediaCard extends ConsumerWidget {
             child: child,
           );
 
-          return AnimatedScale(
-            scale: isActive ? 1.04 : 1.0,
-            duration: const Duration(milliseconds: 160),
-            curve: Curves.easeOutCubic,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 160),
+          return RepaintBoundary(
+            child: AnimatedScale(
+              scale: isActive ? 1.05 : 1.0,
+              duration: const Duration(milliseconds: 140),
               curve: Curves.easeOutCubic,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: isActive
-                    ? [
-                        BoxShadow(
-                          color: Theme.of(
-                            context,
-                          ).colorScheme.primary.withValues(alpha: 0.22),
-                          blurRadius: 14,
-                          spreadRadius: 1,
-                          offset: const Offset(0, 4),
-                        ),
-                      ]
-                    : [],
-              ),
-              child: SizedBox(
-                width: layout.width,
-                height: layout.height,
-                child: FittedBox(
-                  fit: BoxFit.contain,
-                  child: SizedBox(
-                    width: baseLayout.width,
-                    height: baseLayout.height,
-                    child: normalizedChild,
-                  ),
+              child: FittedBox(
+                fit: BoxFit.contain,
+                child: SizedBox(
+                  width: baseLayout.width,
+                  height: baseLayout.height,
+                  child: normalizedChild,
                 ),
               ),
             ),

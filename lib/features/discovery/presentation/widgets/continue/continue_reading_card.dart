@@ -45,15 +45,15 @@ class _ContinueReadingItemState extends ConsumerState<ContinueReadingItem>
   Future<void> _resumeReading() async {
     await handleResumeMedia(
       resolveAndPlay: () async {
-        final result = await ref
+        final mode = await ref
             .read(continueReadingResolverProvider)
             .resolve(widget.entry);
         if (!mounted) return;
         context.pushDetails(
-          mediaType: result.mode.media.type,
-          media: result.mode.media,
+          mediaType: mode.media.type,
+          media: mode.media,
           initialTabIndex: 1,
-          autoPlayMode: result.mode,
+          autoPlayMode: mode,
         );
       },
       mediaType: MediaType.MANGA,
@@ -162,12 +162,19 @@ class _ContinueReadingItemState extends ConsumerState<ContinueReadingItem>
     return SizedBox(
       width: layout.width,
       height: layout.height,
-      child: FittedBox(
-        fit: BoxFit.fill,
-        child: SizedBox(
-          width: baseLayout.width,
-          height: baseLayout.height,
-          child: normalizedCard,
+      child: RepaintBoundary(
+        child: AnimatedScale(
+          scale: isActive ? 1.04 : 1.0,
+          duration: const Duration(milliseconds: 140),
+          curve: Curves.easeOutCubic,
+          child: FittedBox(
+            fit: BoxFit.fill,
+            child: SizedBox(
+              width: baseLayout.width,
+              height: baseLayout.height,
+              child: normalizedCard,
+            ),
+          ),
         ),
       ),
     );

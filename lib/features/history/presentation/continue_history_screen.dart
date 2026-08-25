@@ -56,12 +56,10 @@ class _ContinueHistoryScreenState extends ConsumerState<ContinueHistoryScreen> {
       _isSelectionMode = false;
     });
 
-    for (final id in toDelete) {
-      if (isAnime) {
-        await ref.read(watchHistoryRepositoryProvider).deleteByAnimeId(id);
-      } else {
-        await ref.read(readHistoryRepositoryProvider).deleteByMangaId(id);
-      }
+    if (isAnime) {
+      await ref.read(watchHistoryRepositoryProvider).deleteByAnimeIds(toDelete);
+    } else {
+      await ref.read(readHistoryRepositoryProvider).deleteByMangaIds(toDelete);
     }
 
     if (mounted) {
@@ -128,6 +126,7 @@ class _ContinueHistoryScreenState extends ConsumerState<ContinueHistoryScreen> {
               style: TextStyle(color: Colors.red),
             ),
             onTap: () async {
+              final messenger = ScaffoldMessenger.of(this.context);
               Navigator.pop(context);
               if (isAnime) {
                 await ref
@@ -139,7 +138,7 @@ class _ContinueHistoryScreenState extends ConsumerState<ContinueHistoryScreen> {
                     .deleteByMangaId(id);
               }
               if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
+                messenger.showSnackBar(
                   const SnackBar(content: Text('Removed from history')),
                 );
               }
