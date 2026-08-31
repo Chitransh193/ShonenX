@@ -617,10 +617,20 @@ mixin KitsuMetadata on BaseTracker implements RemoteTracker {
         }
       }
 
+      final kitsuId = json['id']?.toString() ?? '';
+      final int? year = startDateStr != null
+          ? DateTime.tryParse(startDateStr)?.year
+          : null;
+      final String? ytId = attr['youtubeVideoId']?.toString();
+      final String? trailer = (ytId != null && ytId.isNotEmpty)
+          ? 'https://www.youtube.com/watch?v=$ytId'
+          : null;
+
       return UnifiedMedia(
-        id: json['id']?.toString() ?? '',
-        providerId: json['id']?.toString() ?? '',
+        id: kitsuId,
+        providerId: kitsuId,
         idMal: idMal,
+        externalIds: MediaExternalIds(kitsu: kitsuId, mal: idMal),
         title: title,
         type: type,
         cover: cover,
@@ -632,6 +642,8 @@ mixin KitsuMetadata on BaseTracker implements RemoteTracker {
         score: rating,
         isAdult: isAdult,
         season: season,
+        year: year,
+        trailer: trailer,
         airingAt: airingAt,
         relationType: relationType,
         relations: relationsList.isNotEmpty ? relationsList : null,

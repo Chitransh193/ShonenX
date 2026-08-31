@@ -34,7 +34,7 @@ class HorizontalSection<T> extends StatelessWidget {
     this.emptyWidget,
     this.onMoreTap,
     this.skeletonItemBuilder,
-    this.skeletonCount = 6,
+    this.skeletonCount = 10,
     this.controller,
     this.headerPadding,
     this.listPadding,
@@ -97,6 +97,7 @@ class HorizontalSection<T> extends StatelessWidget {
               enabled: true,
               child: ListView.separated(
                 controller: controller,
+                physics: const BouncingScrollPhysics(),
                 clipBehavior: Clip.none,
                 scrollDirection: Axis.horizontal,
                 padding:
@@ -107,10 +108,12 @@ class HorizontalSection<T> extends StatelessWidget {
                     return skeletonItemBuilder!(context, index);
                   }
                   return Container(
-                    width: height * 0.7,
+                    width: (height * 0.71).clamp(130.0, 160.0),
                     height: height,
                     decoration: BoxDecoration(
-                      color: Colors.grey[300],
+                      color: Theme.of(context).brightness == Brightness.dark
+                          ? Colors.white.withValues(alpha: 0.08)
+                          : Colors.black.withValues(alpha: 0.08),
                       borderRadius: BorderRadius.circular(12),
                     ),
                   );
@@ -131,36 +134,42 @@ class HorizontalSection<T> extends StatelessWidget {
                     );
               }
 
-              return ListView.separated(
-                controller: controller,
-                clipBehavior: Clip.none,
-                scrollDirection: Axis.horizontal,
-                padding:
-                    listPadding ?? const EdgeInsets.symmetric(horizontal: 12),
-                itemCount: items.length,
-                itemBuilder: (context, index) {
-                  return Builder(
-                    builder: (itemContext) {
-                      return Focus(
-                        skipTraversal: true,
-                        canRequestFocus: false,
-                        onFocusChange: (hasFocus) {
-                          if (hasFocus) {
-                            Scrollable.ensureVisible(
-                              itemContext,
-                              alignment: 0.5,
-                              duration: const Duration(milliseconds: 250),
-                              curve: Curves.easeOutCubic,
-                            );
-                          }
-                        },
-                        child: itemBuilder(itemContext, items[index]),
-                      );
-                    },
-                  );
-                },
-                separatorBuilder: (context, index) =>
-                    SizedBox(width: gap ?? 10.0),
+              return ScrollConfiguration(
+                behavior: ScrollConfiguration.of(
+                  context,
+                ).copyWith(scrollbars: false),
+                child: ListView.separated(
+                  controller: controller,
+                  physics: const BouncingScrollPhysics(),
+                  clipBehavior: Clip.none,
+                  scrollDirection: Axis.horizontal,
+                  padding:
+                      listPadding ?? const EdgeInsets.symmetric(horizontal: 12),
+                  itemCount: items.length,
+                  itemBuilder: (context, index) {
+                    return Builder(
+                      builder: (itemContext) {
+                        return Focus(
+                          skipTraversal: true,
+                          canRequestFocus: false,
+                          onFocusChange: (hasFocus) {
+                            if (hasFocus) {
+                              Scrollable.ensureVisible(
+                                itemContext,
+                                alignment: 0.5,
+                                duration: const Duration(milliseconds: 250),
+                                curve: Curves.easeOutCubic,
+                              );
+                            }
+                          },
+                          child: itemBuilder(itemContext, items[index]),
+                        );
+                      },
+                    );
+                  },
+                  separatorBuilder: (context, index) =>
+                      SizedBox(width: gap ?? 10.0),
+                ),
               );
             },
           ),

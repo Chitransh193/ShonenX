@@ -63,7 +63,33 @@ class ContentSettingsScreen extends ConsumerWidget {
                     ref
                         .read(contentPrefsProvider.notifier)
                         .setTitlePreference(val);
-                    ref.invalidate(homeFeedProvider);
+                    ref.invalidate(homeSectionFeedProvider);
+                  }
+                },
+              ),
+            ],
+          ),
+          SettingsSection(
+            title: 'Episode Metadata',
+            children: [
+              SettingsDropdownTile<EpisodeMetadataProviderType>(
+                icon: Icons.auto_awesome_rounded,
+                title: 'Episode Metadata Provider',
+                value: prefs.episodeMetadataProvider,
+                items: EpisodeMetadataProviderType.values
+                    .where((e) => e != EpisodeMetadataProviderType.jikan)
+                    .map(
+                      (e) => DropdownMenuItem(
+                        value: e,
+                        child: Text(e.displayName),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (val) {
+                  if (val != null) {
+                    ref
+                        .read(contentPrefsProvider.notifier)
+                        .setEpisodeMetadataProvider(val);
                   }
                 },
               ),

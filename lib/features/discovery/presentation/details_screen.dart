@@ -10,6 +10,8 @@ import 'package:shonenx/features/auth/providers/auth_provider.dart';
 import 'package:shonenx/features/comments/presentation/widgets/comments_tab.dart';
 import 'package:shonenx/features/discovery/presentation/widgets/tabs/about_tab.dart';
 import 'package:shonenx/features/discovery/presentation/widgets/tabs/episodes_tab.dart';
+import 'package:shonenx/features/discovery/providers/episodes_provider.dart';
+import 'package:shonenx/features/discovery/providers/matched_media_provider.dart';
 import 'package:shonenx/features/discord/providers/discord_rpc_provider.dart';
 import 'package:shonenx/features/discovery/providers/details_provider.dart';
 import 'package:shonenx/features/downloads/domain/models/download_task.dart';
@@ -93,11 +95,18 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen>
       }
       if (shouldTrigger) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          _showCommentsSheet(context, widget.media);
+          _refreshEpisodes(widget.media);
         });
       }
     }
     return false;
+  }
+
+  void _refreshEpisodes(UnifiedMedia media) {
+    HapticFeedback.mediumImpact();
+    ref.invalidate(matchedMediaProvider);
+    ref.invalidate(episodesListProvider);
+    ref.invalidate(sourceEpisodesProvider);
   }
 
   late final DiscordRpcNotifier _rpcNotifier;
@@ -141,14 +150,12 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen>
     if (primaryType == TrackerType.local) return;
 
     final media = widget.media;
+    final trackingId = resolveTrackingIdFromMedia(
+      trackerType: primaryType,
+      media: media,
+    );
 
-    // Only auto-link if it's tracker-based metadata
-    final isTrackerMedia = media.sourceId == null;
-
-    if (!isTrackerMedia) return;
-
-    String? trackingId;
-    trackingId = media.id;
+    if (trackingId == null || trackingId.isEmpty) return;
 
     final linksMap = await ref.read(trackerLinkProvider(media.id).future);
     if (linksMap.containsKey(primaryType)) return;
@@ -579,9 +586,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen>
                               ),
                             ),
                             Icon(
-                              _pullProgress >= 1.0
-                                  ? Icons.forum_rounded
-                                  : Icons.chat_bubble_outline_rounded,
+                              Icons.refresh_rounded,
                               color: _pullProgress >= 1.0
                                   ? theme.colorScheme.primary
                                   : theme.colorScheme.onSurface,
@@ -658,7 +663,7 @@ class _TrackerAppBarButton extends ConsumerWidget {
     final tracker = ref.watch(primaryTrackerProvider);
 
     final trackingState = ref.watch(
-      mediaTrackingProvider(TrackingQuery(tracker.type, media.id, media.type)),
+      mediaTrackingProvider(TrackingQuery(tracker.type, media)),
     );
 
     return _buildUI(
@@ -698,7 +703,15 @@ class _TrackerAppBarButton extends ConsumerWidget {
       ),
       data: (listItem) {
         final links = trackerLinksAsync.value ?? {};
-        final isTrackerLinked = links.containsKey(tracker.type);
+        final resolvedId =
+            links[tracker.type]?.trackingId ??
+            resolveTrackingIdFromMedia(
+              trackerType: tracker.type,
+              media: media,
+              links: links,
+            );
+        final isTrackerLinked =
+            resolvedId != null || tracker.type == TrackerType.local;
         final isAuthenticated = tracker.type.isAuthenticated(ref);
 
         String label = 'Add Tracker';

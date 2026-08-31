@@ -75,13 +75,167 @@ class MediaCharacter {
   });
 }
 
+class MediaExternalIds {
+  final String? anilist;
+  final String? mal;
+  final String? simkl;
+  final String? tmdb;
+  final String? kitsu;
+  final Map<String, String> extra;
+
+  const MediaExternalIds({
+    this.anilist,
+    this.mal,
+    this.simkl,
+    this.tmdb,
+    this.kitsu,
+    this.extra = const {},
+  });
+
+  String? get(String key) {
+    switch (key.toLowerCase()) {
+      case 'anilist':
+        return anilist;
+      case 'mal':
+      case 'myanimelist':
+        return mal;
+      case 'simkl':
+        return simkl;
+      case 'tmdb':
+        return tmdb;
+      case 'kitsu':
+        return kitsu;
+      default:
+        return extra[key];
+    }
+  }
+
+  MediaExternalIds copyWith({
+    String? anilist,
+    String? mal,
+    String? simkl,
+    String? tmdb,
+    String? kitsu,
+    Map<String, String>? extra,
+  }) {
+    return MediaExternalIds(
+      anilist: anilist ?? this.anilist,
+      mal: mal ?? this.mal,
+      simkl: simkl ?? this.simkl,
+      tmdb: tmdb ?? this.tmdb,
+      kitsu: kitsu ?? this.kitsu,
+      extra: extra ?? this.extra,
+    );
+  }
+
+  MediaExternalIds merge(MediaExternalIds? other) {
+    if (other == null) return this;
+    return MediaExternalIds(
+      anilist: other.anilist ?? anilist,
+      mal: other.mal ?? mal,
+      simkl: other.simkl ?? simkl,
+      tmdb: other.tmdb ?? tmdb,
+      kitsu: other.kitsu ?? kitsu,
+      extra: {...extra, ...other.extra},
+    );
+  }
+
+  Map<String, dynamic> toMap() => {
+    if (anilist != null && anilist!.isNotEmpty) 'anilist': anilist,
+    if (mal != null && mal!.isNotEmpty) 'mal': mal,
+    if (simkl != null && simkl!.isNotEmpty) 'simkl': simkl,
+    if (tmdb != null && tmdb!.isNotEmpty) 'tmdb': tmdb,
+    if (kitsu != null && kitsu!.isNotEmpty) 'kitsu': kitsu,
+    ...extra,
+  };
+
+  factory MediaExternalIds.fromMap(Map<String, dynamic>? map) {
+    if (map == null || map.isEmpty) return const MediaExternalIds();
+    final extra = <String, String>{};
+    String? anilist, mal, simkl, tmdb, kitsu;
+    for (final entry in map.entries) {
+      final val = entry.value?.toString();
+      if (val == null || val.isEmpty) continue;
+      switch (entry.key.toLowerCase()) {
+        case 'anilist':
+          anilist = val;
+          break;
+        case 'mal':
+        case 'myanimelist':
+          mal = val;
+          break;
+        case 'simkl':
+          simkl = val;
+          break;
+        case 'tmdb':
+          tmdb = val;
+          break;
+        case 'kitsu':
+          kitsu = val;
+          break;
+        default:
+          extra[entry.key] = val;
+      }
+    }
+    return MediaExternalIds(
+      anilist: anilist,
+      mal: mal,
+      simkl: simkl,
+      tmdb: tmdb,
+      kitsu: kitsu,
+      extra: extra,
+    );
+  }
+
+  bool get isEmpty =>
+      anilist == null &&
+      mal == null &&
+      simkl == null &&
+      tmdb == null &&
+      kitsu == null &&
+      extra.isEmpty;
+
+  bool get isNotEmpty => !isEmpty;
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    if (other is! MediaExternalIds) return false;
+    if (anilist != other.anilist ||
+        mal != other.mal ||
+        simkl != other.simkl ||
+        tmdb != other.tmdb ||
+        kitsu != other.kitsu ||
+        extra.length != other.extra.length) {
+      return false;
+    }
+    for (final key in extra.keys) {
+      if (extra[key] != other.extra[key]) return false;
+    }
+    return true;
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    anilist,
+    mal,
+    simkl,
+    tmdb,
+    kitsu,
+    Object.hashAll(extra.entries.map((e) => Object.hash(e.key, e.value))),
+  );
+}
+
 class UnifiedMedia {
   final String id;
   final MediaType type;
   final String? sourceId;
   final String? sourceName;
   final String? providerId;
-  final String? idMal;
+  final MediaExternalIds externalIds;
+  final String? _idMal;
+  String? get idMal => externalIds.mal ?? _idMal;
+
   final MediaTitle title;
   final String? format;
   final String? cover;
@@ -104,6 +258,8 @@ class UnifiedMedia {
   final List<MediaExternalLink>? externalLinks;
   final List<MediaCharacter>? characters;
   final String? season;
+  final int? year;
+  final String? trailer;
   final DateTime? airingAt;
   final int? nextEpisode;
   final String? relationType;
@@ -117,7 +273,8 @@ class UnifiedMedia {
     this.sourceName,
     this.title = const MediaTitle(),
     this.providerId,
-    this.idMal,
+    String? idMal,
+    MediaExternalIds? externalIds,
     this.format,
     this.cover,
     this.score,
@@ -139,12 +296,17 @@ class UnifiedMedia {
     this.externalLinks = const [],
     this.characters = const [],
     this.season,
+    this.year,
+    this.trailer,
     this.airingAt,
     this.nextEpisode,
     this.relationType,
     this.relations = const [],
     this.recommendations = const [],
-  });
+  }) : _idMal = idMal,
+       externalIds = (externalIds ?? const MediaExternalIds()).merge(
+         idMal != null ? MediaExternalIds(mal: idMal) : null,
+       );
 
   @override
   bool operator ==(Object other) {
@@ -202,6 +364,7 @@ extension UnifiedMediaX on UnifiedMedia {
       sourceId: other.sourceId ?? sourceId,
       sourceName: other.sourceName ?? sourceName,
       providerId: other.providerId ?? providerId,
+      externalIds: externalIds.merge(other.externalIds),
       idMal: other.idMal ?? idMal,
       format: other.format ?? format,
 
@@ -241,6 +404,8 @@ extension UnifiedMediaX on UnifiedMedia {
           ? other.characters
           : characters,
       season: other.season ?? season,
+      year: other.year ?? year,
+      trailer: other.trailer ?? trailer,
       airingAt: other.airingAt ?? airingAt,
       nextEpisode: other.nextEpisode ?? nextEpisode,
       relationType: other.relationType ?? relationType,

@@ -18,6 +18,7 @@ import 'package:shonenx/features/history/providers/read_history_provider.dart';
 import 'package:shonenx/features/history/providers/watch_history_provider.dart';
 import 'package:shonenx/features/tracking/providers/media_tracking_provider.dart';
 import 'package:shonenx/features/tracking/providers/tracker_registry.dart';
+import 'package:shonenx/features/episode_metadata/providers/episode_metadata_providers.dart';
 import 'package:shonenx/features/tv_mode/presentation/widgets/tv_episode_list_panel.dart';
 
 export 'episode_tiles.dart';
@@ -105,17 +106,9 @@ class _EpisodeListPanelState extends ConsumerState<EpisodeListPanel> {
     setState(() {
       _isRetrying = true;
     });
-    ref.invalidate(matchedMediaProvider(matchArgs));
-    ref.invalidate(episodesListProvider(matchArgs));
-    if (widget.media.sourceId != null) {
-      ref.invalidate(
-        sourceEpisodesProvider((
-          providerId: widget.media.providerId ?? widget.media.id,
-          sourceId: widget.media.sourceId!,
-          type: widget.media.type,
-        )),
-      );
-    }
+    ref.invalidate(matchedMediaProvider);
+    ref.invalidate(episodesListProvider);
+    ref.invalidate(sourceEpisodesProvider);
     Future.delayed(const Duration(seconds: 2), () {
       if (mounted) {
         setState(() {
@@ -137,9 +130,7 @@ class _EpisodeListPanelState extends ConsumerState<EpisodeListPanel> {
 
     final primaryTracker = ref.watch(primaryTrackerProvider);
     final trackingState = ref.watch(
-      mediaTrackingProvider(
-        TrackingQuery(primaryTracker.type, widget.media.id, widget.media.type),
-      ),
+      mediaTrackingProvider(TrackingQuery(primaryTracker.type, widget.media)),
     );
     final trackedProgress = trackingState.value?.progress.toDouble() ?? 0;
 
@@ -162,7 +153,29 @@ class _EpisodeListPanelState extends ConsumerState<EpisodeListPanel> {
         : (trackedProgress > 0 ? trackedProgress : maxHistoryEp);
 
     return episodesAsync.when(
-      loading: () => const Center(child: CircularProgressIndicator()),
+      loading: () {
+        final progressMsg = ref.watch(episodeMetadataProgressProvider).value;
+        return Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const CircularProgressIndicator(),
+              if (progressMsg != null && progressMsg.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                Text(
+                  progressMsg,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: Colors.white70,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        );
+      },
       error: (e, _) => Center(
         child: Padding(
           padding: const EdgeInsets.all(24.0),
@@ -612,8 +625,15 @@ class _EpisodeListPanelState extends ConsumerState<EpisodeListPanel> {
           _hasAutoScrolled = true;
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!mounted) return;
-            if (!_scrollController.hasClients) return;
-            final maxExt = _scrollController.position.maxScrollExtent;
+            final activeScrollController = widget.useScrollController
+                ? _scrollController
+                : (PrimaryScrollController.maybeOf(context) ??
+                      _scrollController);
+
+            if (!activeScrollController.hasClients) return;
+            final position = activeScrollController.positions.lastOrNull;
+            if (position == null) return;
+            final maxExt = position.maxScrollExtent;
             if (maxExt <= 0) return;
 
             double offset;
@@ -668,30 +688,23 @@ class _EpisodeListPanelState extends ConsumerState<EpisodeListPanel> {
                 offset = boxPad + row * (boxSize + boxSpacing);
             }
 
-            final activeScrollController = widget.useScrollController
-                ? _scrollController
-                : PrimaryScrollController.of(context);
+            final targetOffset = offset.clamp(0.0, maxExt);
+            final delta = (targetOffset - position.pixels).abs();
 
-            if (activeScrollController.hasClients) {
-              final targetOffset = offset.clamp(0.0, maxExt);
-              final delta = (targetOffset - activeScrollController.offset)
-                  .abs();
-
-              if (delta > 200) {
-                final preOffset = (targetOffset - 60.0).clamp(0.0, maxExt);
-                activeScrollController.jumpTo(preOffset);
-                activeScrollController.animateTo(
-                  targetOffset,
-                  duration: const Duration(milliseconds: 150),
-                  curve: Curves.easeOut,
-                );
-              } else if (delta > 0) {
-                activeScrollController.animateTo(
-                  targetOffset,
-                  duration: const Duration(milliseconds: 200),
-                  curve: Curves.easeOut,
-                );
-              }
+            if (delta > 200) {
+              final preOffset = (targetOffset - 60.0).clamp(0.0, maxExt);
+              position.jumpTo(preOffset);
+              position.animateTo(
+                targetOffset,
+                duration: const Duration(milliseconds: 150),
+                curve: Curves.easeOut,
+              );
+            } else if (delta > 0) {
+              position.animateTo(
+                targetOffset,
+                duration: const Duration(milliseconds: 200),
+                curve: Curves.easeOut,
+              );
             }
           });
         }

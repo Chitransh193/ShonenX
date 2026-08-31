@@ -77,8 +77,9 @@ extension AppNavigator on BuildContext {
   void pushPlayer(PlayerMode mode) => push('/player', extra: mode);
   void pushReader(ReaderModeOnline mode) => push('/reader', extra: mode);
 
-  // Discover & Library
+  // Discover & Library & Calendar
   void pushLibrary() => push('/library');
+  void pushCalendar() => push('/calendar');
   void pushDiscover({
     String? query,
     String? source,
@@ -188,6 +189,7 @@ extension AppNavigator on BuildContext {
 
   // Downloads
   void pushDownloads() => push('/downloads');
+  void goDownloads() => go('/downloads');
 
   // History / Continue
   void pushContinueHistory(MediaType type) => push('/continue/${type.id}');

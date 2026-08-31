@@ -10,6 +10,7 @@ import 'package:shonenx/features/onboarding/presentation/onboarding_screen.dart'
 import 'package:shonenx/features/discovery/presentation/home_screen.dart';
 import 'package:shonenx/features/settings/presentation/discord_settings_screen.dart';
 import 'package:shonenx/features/splash/presentation/splash_screen.dart';
+import 'package:shonenx/features/calendar/presentation/calendar_screen.dart';
 import 'package:shonenx/features/discovery/presentation/filtered_discover_screen.dart';
 import 'package:shonenx/features/discovery/presentation/discover_screen.dart';
 import 'package:shonenx/features/downloads/presentation/downloads_screen.dart';
@@ -49,6 +50,9 @@ final rootNavigatorKey = GlobalKey<NavigatorState>();
 final _homeNavigatorKey = GlobalKey<NavigatorState>(debugLabel: 'home');
 final _libraryNavigatorKey = GlobalKey<NavigatorState>(debugLabel: 'library');
 final _searchNavigatorKey = GlobalKey<NavigatorState>(debugLabel: 'search');
+final _downloadsNavigatorKey = GlobalKey<NavigatorState>(
+  debugLabel: 'downloads',
+);
 
 final startupUriProvider = Provider<Uri?>((ref) => null);
 
@@ -197,6 +201,15 @@ final routerProvider = Provider<GoRouter>((ref) {
               ),
             ],
           ),
+          StatefulShellBranch(
+            navigatorKey: _downloadsNavigatorKey,
+            routes: [
+              GoRoute(
+                path: '/downloads',
+                builder: (context, state) => const DownloadsScreen(),
+              ),
+            ],
+          ),
         ],
       ),
       GoRoute(
@@ -212,9 +225,15 @@ final routerProvider = Provider<GoRouter>((ref) {
           final genres = state.uri.queryParametersAll['genres'] ?? [];
           final tags = state.uri.queryParametersAll['tags'] ?? [];
           final category = state.uri.queryParameters['category'];
-          final sortParam = SearchSort.tryFromId(state.uri.queryParameters['sort']);
-          final statusParam = SearchStatusFilter.tryFromId(state.uri.queryParameters['status']);
-          final formatParam = SearchFormatFilter.tryFromId(state.uri.queryParameters['format']);
+          final sortParam = SearchSort.tryFromId(
+            state.uri.queryParameters['sort'],
+          );
+          final statusParam = SearchStatusFilter.tryFromId(
+            state.uri.queryParameters['status'],
+          );
+          final formatParam = SearchFormatFilter.tryFromId(
+            state.uri.queryParameters['format'],
+          );
 
           return FilteredDiscoverScreen(
             initialQuery: query,
@@ -275,8 +294,8 @@ final routerProvider = Provider<GoRouter>((ref) {
         },
       ),
       GoRoute(
-        path: '/downloads',
-        builder: (context, state) => const DownloadsScreen(),
+        path: '/calendar',
+        builder: (context, state) => const CalendarScreen(),
       ),
       GoRoute(
         path: '/settings',
