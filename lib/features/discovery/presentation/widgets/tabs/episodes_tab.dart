@@ -6,24 +6,25 @@ import 'package:shonenx/core/router/app_navigator.dart';
 import 'package:shonenx/features/discovery/domain/media_args.dart';
 import 'package:shonenx/features/discovery/presentation/widgets/sheets/download_sheet.dart';
 import 'package:shonenx/features/discovery/presentation/widgets/episodes_panel/episode_list_panel.dart';
+import 'package:shonenx/features/discovery/presentation/widgets/episodes_panel/season_selector_bar.dart';
 import 'package:shonenx/features/discovery/presentation/widgets/sheets/manual_match_sheet.dart';
 import 'package:shonenx/features/discovery/providers/matched_media_provider.dart';
 import 'package:shonenx/features/discovery/providers/media_preference_provider.dart';
 import 'package:shonenx/features/history/providers/read_history_provider.dart';
 import 'package:shonenx/features/player/domain/player_mode.dart';
 import 'package:shonenx/features/reader/domain/reader_mode.dart';
-import 'package:shonenx/features/tracking/providers/media_tracking_provider.dart';
-import 'package:shonenx/features/tracking/providers/tracker_registry.dart';
 import 'package:shonenx/shared/models/unified_episode.dart';
 import 'package:shonenx/shared/models/unified_media.dart';
 import 'package:shonenx/features/discovery/providers/episodes_provider.dart';
 import 'package:shonenx/shared/widgets/app_bottom_sheet.dart';
+import 'package:shonenx/shared/widgets/app_focus_hover.dart';
 import 'package:shonenx/shared/widgets/source_selector_list.dart';
 import 'package:shonenx/shared/widgets/staggered_fade_in.dart';
 import 'package:shonenx/source_engine/models/source_info.dart';
 import 'package:shonenx/source_engine/utils/media_type_extensions.dart';
 import 'package:shonenx/features/history/providers/watch_history_provider.dart';
 import 'package:shonenx/features/comments/presentation/widgets/comments_tab.dart';
+import 'package:shonenx/features/tracking/providers/tracking_prefs_provider.dart';
 
 class EpisodesTabWidget extends ConsumerWidget {
   final UnifiedMedia media;
@@ -47,24 +48,14 @@ class EpisodesTabWidget extends ConsumerWidget {
       return _NoExtensionsPlaceholder(mediaType: media.type);
     }
 
-    final primaryTracker = ref.watch(primaryTrackerProvider);
-    final trackingState = ref.watch(
-      mediaTrackingProvider(TrackingQuery(primaryTracker.type, media)),
-    );
-    final watchedProgress = trackingState.value?.progress.toDouble() ?? 0;
-
-    final watchHistoryEntries =
-        ref.watch(historyEpisodesProvider(media.id)).value ?? [];
-    final readHistoryEntries =
-        ref.watch(historyChaptersProvider(media.id)).value ?? [];
-    final currentEpisodeNumber = media.type == MediaType.ANIME
-        ? watchHistoryEntries.firstOrNull?.episodeNumber
-        : readHistoryEntries.firstOrNull?.chapterNumber;
-
     return Column(
       children: [
         if (media.sourceId == null && !isTv) ...[
           StaggeredFadeIn(index: 0, child: _EpisodesHeader(media: media)),
+          StaggeredFadeIn(
+            index: 1,
+            child: SeasonSelectorBar(currentMedia: media),
+          ),
           Container(
             width: double.maxFinite,
             height: 1,
@@ -75,12 +66,12 @@ class EpisodesTabWidget extends ConsumerWidget {
           child: EpisodeListPanel(
             media: media,
             isTv: isTv,
-            watchedProgress: watchedProgress,
-            currentEpisodeNumber: currentEpisodeNumber,
             useScrollController: false,
             onEpisodeTap: (UnifiedEpisode episode, SourceInfo sourceInfo) {
               if (media.type == MediaType.MANGA ||
                   media.type == MediaType.NOVEL) {
+                final readHistoryEntries =
+                    ref.read(historyChaptersProvider(media.id)).value ?? [];
                 final historyEntry = readHistoryEntries
                     .where((e) => e.chapterNumber == episode.number)
                     .firstOrNull;
@@ -103,15 +94,23 @@ class EpisodesTabWidget extends ConsumerWidget {
                   ),
                 );
               } else {
+                final watchHistoryEntries =
+                    ref.read(historyEpisodesProvider(media.id)).value ?? [];
                 final historyEntry = watchHistoryEntries
                     .where((e) => e.episodeNumber == episode.number)
                     .firstOrNull;
 
+                final threshold = ref.read(trackingPrefsProvider).syncThreshold;
+                final isFinished =
+                    historyEntry != null &&
+                    historyEntry.durationInMilliseconds > 0 &&
+                    historyEntry.positionInMilliseconds >=
+                        historyEntry.durationInMilliseconds * threshold;
+
                 final Duration? startPosition;
                 if (historyEntry != null &&
                     historyEntry.positionInMilliseconds > 0 &&
-                    historyEntry.positionInMilliseconds <
-                        historyEntry.durationInMilliseconds) {
+                    !isFinished) {
                   startPosition = Duration(
                     milliseconds: historyEntry.positionInMilliseconds,
                   );
@@ -200,13 +199,7 @@ class EpisodesTabWidget extends ConsumerWidget {
                                   ref
                                           .read(
                                             mediaPreferenceProvider(
-                                              MediaArgs(
-                                                mediaTitle:
-                                                    media.title.availableTitle,
-                                                type: media.type,
-                                                sourceId: media.sourceId,
-                                                providerId: media.id,
-                                              ),
+                                              MediaArgs.fromMedia(media),
                                             ),
                                           )
                                           .value
@@ -250,12 +243,7 @@ class _EpisodesHeader extends ConsumerWidget {
       return const SizedBox.shrink();
     }
 
-    final matchArgs = MediaArgs(
-      mediaTitle: title,
-      type: media.type,
-      sourceId: media.sourceId,
-      providerId: media.id,
-    );
+    final matchArgs = MediaArgs.fromMedia(media);
     final sourceState = ref.watch(mediaPreferenceProvider(matchArgs)).value;
 
     final matchedMediaState = ref.watch(matchedMediaProvider(matchArgs));
@@ -272,7 +260,10 @@ class _EpisodesHeader extends ConsumerWidget {
           matchedMediaState.value?.matchedMedia?.title ?? 'No match found';
     }
 
-    final sourceName = sourceState?.sourceInfo.name ?? 'Unknown';
+    final sourceName =
+        matchedMediaState.value?.sourceInfo.name ??
+        sourceState?.sourceInfo.name ??
+        'Unknown';
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
@@ -368,7 +359,6 @@ class _EpisodesHeader extends ConsumerWidget {
     UnifiedMedia media,
     SourceInfo? currentSource,
   ) {
-    final title = media.title.availableTitle;
     final availableSources =
         ref.read(media.type.availableSourcesProvider).value ?? [];
 
@@ -380,37 +370,13 @@ class _EpisodesHeader extends ConsumerWidget {
         currentSource: currentSource,
         mediaType: media.type,
         onSourceSelected: (sheetContext, source) {
-          final matchArgs = MediaArgs(
-            mediaTitle: title,
-            type: media.type,
-            sourceId: media.sourceId,
-            providerId: media.id,
-          );
+          final matchArgs = MediaArgs.fromMedia(media);
           ref
               .read(mediaPreferenceProvider(matchArgs).notifier)
               .updateSource(source);
-          ref.invalidate(matchedMediaProvider(matchArgs));
-          ref.invalidate(episodesListProvider(matchArgs));
-          if (media.sourceId != null) {
-            ref.invalidate(
-              sourceEpisodesProvider((
-                providerId: media.id,
-                sourceId: media.sourceId!,
-                type: media.type,
-              )),
-            );
-          }
           Navigator.pop(sheetContext);
         },
         onSettingsClosed: () {
-          final matchArgs = MediaArgs(
-            mediaTitle: title,
-            type: media.type,
-            sourceId: media.sourceId,
-            providerId: media.id,
-          );
-          ref.invalidate(matchedMediaProvider(matchArgs));
-          ref.invalidate(episodesListProvider(matchArgs));
           if (media.sourceId != null) {
             ref.invalidate(
               sourceEpisodesProvider((
@@ -426,7 +392,7 @@ class _EpisodesHeader extends ConsumerWidget {
   }
 }
 
-class _HeaderButton extends StatefulWidget {
+class _HeaderButton extends StatelessWidget {
   final IconData icon;
   final String label;
   final VoidCallback onTap;
@@ -438,85 +404,51 @@ class _HeaderButton extends StatefulWidget {
   });
 
   @override
-  State<_HeaderButton> createState() => _HeaderButtonState();
-}
-
-class _HeaderButtonState extends State<_HeaderButton> {
-  final FocusNode _focusNode = FocusNode();
-  bool _isFocused = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _focusNode.addListener(() {
-      if (mounted) setState(() => _isFocused = _focusNode.hasFocus);
-    });
-  }
-
-  @override
-  void dispose() {
-    _focusNode.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
 
-    return FocusableActionDetector(
-      focusNode: _focusNode,
-      actions: {
-        ActivateIntent: CallbackAction<ActivateIntent>(
-          onInvoke: (_) {
-            widget.onTap();
-            return null;
-          },
-        ),
-      },
-      child: AnimatedScale(
-        scale: _isFocused ? 1.05 : 1.0,
-        duration: const Duration(milliseconds: 150),
-        child: Material(
-          color: _isFocused
+    return AppFocusHover(
+      onTap: onTap,
+      scaleFactor: 1.05,
+      builder: (context, isFocused, isHovered) {
+        final active = isFocused || isHovered;
+        return Material(
+          color: active
               ? cs.primary
               : cs.surfaceContainerHighest.withValues(alpha: 0.6),
           borderRadius: BorderRadius.circular(16),
           clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            canRequestFocus: false,
-            onTap: widget.onTap,
-            child: Container(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: _isFocused ? Colors.white : Colors.transparent,
-                  width: 1.5,
-                ),
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    widget.icon,
-                    size: 16,
-                    color: _isFocused ? cs.onPrimary : cs.onSurfaceVariant,
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    widget.label,
-                    style: textTheme.labelMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                      color: _isFocused ? cs.onPrimary : cs.onSurfaceVariant,
-                    ),
-                  ),
-                ],
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: active ? Colors.white : Colors.transparent,
+                width: 1.5,
               ),
             ),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  icon,
+                  size: 16,
+                  color: active ? cs.onPrimary : cs.onSurfaceVariant,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  label,
+                  style: textTheme.labelMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: active ? cs.onPrimary : cs.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }

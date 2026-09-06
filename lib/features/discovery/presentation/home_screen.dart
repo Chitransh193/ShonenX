@@ -25,37 +25,34 @@ class _HeaderButton extends StatelessWidget {
   final VoidCallback onTap;
   final String tooltip;
   final bool active;
+  final double? borderRadius;
 
   const _HeaderButton({
     required this.icon,
     required this.onTap,
     required this.tooltip,
     this.active = false,
+    this.borderRadius,
   });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final radius = BorderRadius.circular(borderRadius ?? GlobalUI.uiRoundness);
+
     return Tooltip(
       message: tooltip,
       child: Material(
         color: active
             ? theme.colorScheme.primaryContainer
             : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: radius,
+        clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(12),
-          child: Container(
+          borderRadius: radius,
+          child: Padding(
             padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: active
-                    ? theme.colorScheme.primary.withValues(alpha: 0.5)
-                    : theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
-              ),
-            ),
             child: Icon(
               icon,
               size: 20,
@@ -101,6 +98,10 @@ class HomeScreen extends ConsumerWidget {
           }
         },
         child: CustomScrollView(
+          cacheExtent: 500,
+          physics: const AlwaysScrollableScrollPhysics(
+            parent: BouncingScrollPhysics(),
+          ),
           slivers: [
             // Top Header Bar
             SliverToBoxAdapter(
@@ -122,13 +123,28 @@ class HomeScreen extends ConsumerWidget {
               )
             else
               SliverList(
-                delegate: SliverChildBuilderDelegate((context, index) {
-                  final section = activeSections[index];
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 10.0),
-                    child: _buildSectionWidget(context, ref, section),
-                  );
-                }, childCount: activeSections.length),
+                delegate: SliverChildBuilderDelegate(
+                  (context, index) {
+                    final section = activeSections[index];
+                    return _KeepAliveSection(
+                      key: ValueKey(section.id),
+                      child: Padding(
+                        padding: const EdgeInsets.only(bottom: 10.0),
+                        child: _buildSectionWidget(context, ref, section),
+                      ),
+                    );
+                  },
+                  findChildIndexCallback: (Key key) {
+                    if (key is ValueKey<String>) {
+                      final index = activeSections.indexWhere(
+                        (s) => s.id == key.value,
+                      );
+                      return index == -1 ? null : index;
+                    }
+                    return null;
+                  },
+                  childCount: activeSections.length,
+                ),
               ),
 
             const SliverToBoxAdapter(child: SizedBox(height: 100)),
@@ -221,6 +237,7 @@ class HomeScreen extends ConsumerWidget {
 
                 return _HeaderButton(
                   tooltip: 'Discovery Mode',
+                  borderRadius: uiRoundness,
                   onTap: () => showModalBottomSheet(
                     context: context,
                     isScrollControlled: true,
@@ -238,12 +255,14 @@ class HomeScreen extends ConsumerWidget {
             const SizedBox(width: 8),
             _HeaderButton(
               tooltip: 'Airing Calendar',
+              borderRadius: uiRoundness,
               onTap: () => context.pushCalendar(),
               icon: Icons.calendar_month_outlined,
             ),
             const SizedBox(width: 8),
             _HeaderButton(
               tooltip: 'Settings',
+              borderRadius: uiRoundness,
               onTap: () => context.pushSettings(),
               icon: Icons.settings_outlined,
             ),
@@ -328,5 +347,25 @@ class HomeScreen extends ConsumerWidget {
           },
         );
     }
+  }
+}
+
+class _KeepAliveSection extends StatefulWidget {
+  final Widget child;
+  const _KeepAliveSection({super.key, required this.child});
+
+  @override
+  State<_KeepAliveSection> createState() => _KeepAliveSectionState();
+}
+
+class _KeepAliveSectionState extends State<_KeepAliveSection>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return widget.child;
   }
 }

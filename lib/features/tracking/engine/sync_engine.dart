@@ -37,12 +37,14 @@ class SyncEngine {
     final progressPercent = position.inSeconds / duration.inSeconds;
     final threshold = ref.read(trackingPrefsProvider).syncThreshold;
 
-    log.v('Progress ${(progressPercent * 100).toStringAsFixed(1)}%');
+    log.v(
+      'Progress ${(progressPercent * 100).toStringAsFixed(1)}% (Threshold: ${(threshold * 100).toInt()}%)',
+    );
 
     if (progressPercent >= threshold) {
       _sessionSyncedCache.add(sessionKey);
 
-      log.i('Threshold hit → syncing');
+      log.i('Threshold hit → syncing Ep $episodeNumber');
 
       await syncEpisodeProgress(media: media, episodeNumber: episodeNumber);
     }
@@ -64,12 +66,14 @@ class SyncEngine {
     final progressPercent = positionPage / totalPages;
     final threshold = ref.read(trackingPrefsProvider).syncThreshold;
 
-    log.v('Progress ${(progressPercent * 100).toStringAsFixed(1)}%');
+    log.v(
+      'Progress ${(progressPercent * 100).toStringAsFixed(1)}% (Threshold: ${(threshold * 100).toInt()}%)',
+    );
 
     if (progressPercent >= threshold) {
       _sessionSyncedCache.add(sessionKey);
 
-      log.i('Threshold hit → syncing');
+      log.i('Threshold hit → syncing Ch $chapterNumber');
 
       await syncEpisodeProgress(media: media, episodeNumber: chapterNumber);
     }
@@ -104,59 +108,62 @@ class SyncEngine {
         continue;
       }
 
-      String? actualTrackingId = linkedIds[tracker.type]?.trackingId;
-      if (tracker.type == TrackerType.local) {
-        actualTrackingId = media.id;
+      final actualTrackingId = tracker.type == TrackerType.local
+          ? media.id
+          : linkedIds[tracker.type]?.trackingId;
+
+      if (actualTrackingId == null || actualTrackingId.isEmpty) {
+        log.d('Skip ${tracker.type.displayName} → not linked to media');
+        continue;
       }
 
-      if (actualTrackingId != null) {
-        final query = TrackingQuery(tracker.type, media);
+      final query = TrackingQuery(tracker.type, media);
 
-        TrackedListItem? currentData;
+      TrackedListItem? currentData;
 
-        try {
-          currentData = await ref.read(mediaTrackingProvider(query).future);
-        } catch (e, st) {
-          log.w(
-            'Fetch current data failed (${tracker.type.displayName})',
-            e,
-            st,
-          );
-        }
+      try {
+        currentData = await ref.read(mediaTrackingProvider(query).future);
+      } catch (e, st) {
+        log.w('Fetch current data failed (${tracker.type.displayName})', e, st);
+      }
 
-        if (currentData != null && currentData.progress >= episodeNumber) {
-          log.i(
-            'Skip ${tracker.type.displayName} → ${tracker.type == TrackerType.local ? 'local' : 'cloud'} ahead (${currentData.progress})',
-          );
-          continue;
-        }
-
-        TrackedStatus updateStatus = TrackedStatus.watching;
-
-        if (currentData?.status == TrackedStatus.completed) {
-          updateStatus = TrackedStatus.completed;
-        }
-
-        syncTasks.add(
-          tracker
-              .updateListItem(
-                media: media,
-                trackingId: actualTrackingId,
-                progress: episodeNumber,
-                status: updateStatus,
-              )
-              .then((_) {
-                ref.invalidate(mediaTrackingProvider(query));
-
-                log.s('${tracker.type.displayName} → Ep $episodeNumber');
-              })
-              .catchError((e, st) {
-                log.e('Sync failed (${tracker.type.displayName})', e, st);
-
-                _sessionSyncedCache.remove('${media.id}_$episodeNumber');
-              }),
+      if (currentData != null && currentData.progress >= episodeNumber) {
+        log.i(
+          'Skip ${tracker.type.displayName} → ${tracker.type == TrackerType.local ? 'local' : 'cloud'} ahead (${currentData.progress})',
         );
+        continue;
       }
+
+      TrackedStatus updateStatus = TrackedStatus.watching;
+      final totalCount = media.episodes;
+      final isFinishedAll =
+          totalCount != null && totalCount > 0 && episodeNumber >= totalCount;
+
+      if (currentData?.status == TrackedStatus.completed || isFinishedAll) {
+        updateStatus = TrackedStatus.completed;
+      }
+
+      syncTasks.add(
+        tracker
+            .updateListItem(
+              media: media,
+              trackingId: actualTrackingId,
+              progress: episodeNumber,
+              status: updateStatus,
+            )
+            .then((_) {
+              ref.invalidate(mediaTrackingProvider(query));
+
+              log.s(
+                '${tracker.type.displayName} → Ep $episodeNumber ($updateStatus)',
+              );
+            })
+            .catchError((e, st) {
+              log.e('Sync failed (${tracker.type.displayName})', e, st);
+
+              _sessionSyncedCache.remove('${media.id}_$episodeNumber');
+            }),
+      );
     }
 
     if (syncTasks.isNotEmpty) {

@@ -4,6 +4,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shonenx/core/utils/focus_hover_detector.dart';
 import 'package:skeletonizer/skeletonizer.dart';
 import 'package:go_router/go_router.dart';
 import 'package:share_plus/share_plus.dart';
@@ -33,8 +34,9 @@ import 'package:shonenx/features/tracking/presentation/widgets/tracker_manager_s
 import 'package:shonenx/features/tracking/providers/media_tracking_provider.dart';
 import 'package:shonenx/features/tracking/providers/tracker_link_provider.dart';
 import 'package:shonenx/features/tracking/providers/tracker_registry.dart';
+import 'package:shonenx/features/tracking/providers/tracking_prefs_provider.dart';
 import 'package:shonenx/features/tv_mode/presentation/widgets/tv_episode_shelf.dart';
-import 'package:shonenx/features/tv_mode/presentation/widgets/tv_focusable.dart';
+
 import 'package:shonenx/features/tv_mode/presentation/widgets/tv_media_card.dart';
 import 'package:shonenx/features/tv_mode/presentation/widgets/tv_source_dialog.dart';
 import 'package:shonenx/shared/models/ui_style_enums.dart';
@@ -57,17 +59,21 @@ class TvDetailsScreen extends ConsumerStatefulWidget {
 class _TvDetailsScreenState extends ConsumerState<TvDetailsScreen> {
   final ScrollController _scrollController = ScrollController();
   final GlobalKey _episodesShelfKey = GlobalKey();
+  late final ProviderContainer _container;
 
   @override
   void initState() {
     super.initState();
+    _container = ProviderScope.containerOf(context, listen: false);
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      autoLinkTrackers(ref: ref, media: widget.media, isMounted: () => mounted);
       ref.read(discordRpcProvider.notifier).updateMediaPresence(widget.media);
     });
   }
 
   @override
   void dispose() {
+    cleanupUnusedTrackerLinks(container: _container, media: widget.media);
     _scrollController.dispose();
     super.dispose();
   }
@@ -307,7 +313,7 @@ class _TvDetailsScreenState extends ConsumerState<TvDetailsScreen> {
   Widget _buildTopBar(BuildContext context, UnifiedMedia media, double radius) {
     return Row(
       children: [
-        TvFocusable(
+        AppFocusHover(
           onTap: () => context.pop(),
           builder: (context, isFocused, isHovered) {
             final active = isFocused || isHovered;
@@ -342,7 +348,7 @@ class _TvDetailsScreenState extends ConsumerState<TvDetailsScreen> {
           },
         ),
         const Spacer(),
-        TvFocusable(
+        AppFocusHover(
           onTap: () => _shareMedia(media),
           builder: (context, isFocused, isHovered) {
             final active = isFocused || isHovered;
@@ -535,7 +541,7 @@ class _TvDetailsScreenState extends ConsumerState<TvDetailsScreen> {
               ],
               const SizedBox(height: 10),
               if (cleanSynopsis.isNotEmpty)
-                TvFocusable(
+                AppFocusHover(
                   scaleFactor: 1.0,
                   onTap: () => _showSynopsisDialog(
                     context,
@@ -582,7 +588,7 @@ class _TvDetailsScreenState extends ConsumerState<TvDetailsScreen> {
                 runSpacing: 10,
                 crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
-                  TvFocusable(
+                  AppFocusHover(
                     autofocus: true,
                     onTap: () {
                       if (nextTarget != null && effectiveSource != null) {
@@ -652,7 +658,7 @@ class _TvDetailsScreenState extends ConsumerState<TvDetailsScreen> {
                     },
                   ),
                   if (effectiveSource != null)
-                    TvFocusable(
+                    AppFocusHover(
                       onTap: () => TvSourceDialog.show(
                         context,
                         media: media,
@@ -693,7 +699,7 @@ class _TvDetailsScreenState extends ConsumerState<TvDetailsScreen> {
                         );
                       },
                     ),
-                  TvFocusable(
+                  AppFocusHover(
                     onTap: () {
                       if (tracker is RemoteTracker &&
                           !tracker.type.isAuthenticated(ref)) {
@@ -775,7 +781,7 @@ class _TvDetailsScreenState extends ConsumerState<TvDetailsScreen> {
                     },
                   ),
                   if (media.trailer != null && media.trailer!.isNotEmpty)
-                    TvFocusable(
+                    AppFocusHover(
                       onTap: () => _playTrailer(media.trailer),
                       builder: (context, isFocused, isHovered) {
                         final active = isFocused || isHovered;
@@ -869,7 +875,7 @@ class _TvDetailsScreenState extends ConsumerState<TvDetailsScreen> {
           letterSpacing: -0.3,
         ),
       ),
-      headerTrailing: TvFocusable(
+      headerTrailing: AppFocusHover(
         onTap: () => CharactersSheet.show(
           context,
           mediaId: media.id,
@@ -915,7 +921,7 @@ class _TvDetailsScreenState extends ConsumerState<TvDetailsScreen> {
       headerPadding: const EdgeInsets.only(bottom: 14),
       listPadding: EdgeInsets.zero,
       itemBuilder: (context, character) {
-        return TvFocusable(
+        return AppFocusHover(
           onTap: () => CharactersSheet.showDetails(context, character),
           scaleFactor: 1.05,
           builder: (context, isFocused, isHovered) {
@@ -1080,7 +1086,7 @@ class _TvDetailsScreenState extends ConsumerState<TvDetailsScreen> {
             spacing: 10,
             runSpacing: 10,
             children: media.externalLinks!.take(4).map((link) {
-              return TvFocusable(
+              return AppFocusHover(
                 onTap: () async {
                   final uri = Uri.tryParse(link.url);
                   if (uri != null && await canLaunchUrl(uri)) {
@@ -1322,7 +1328,8 @@ class _TvDetailsScreenState extends ConsumerState<TvDetailsScreen> {
           final isFinished =
               latestWatch.durationInMilliseconds > 0 &&
               latestWatch.positionInMilliseconds >=
-                  latestWatch.durationInMilliseconds * 0.9;
+                  latestWatch.durationInMilliseconds *
+                      ref.read(trackingPrefsProvider).syncThreshold;
 
           if (!isFinished && latestWatch.positionInMilliseconds > 0) {
             final remainingMins =

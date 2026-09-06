@@ -18,6 +18,7 @@ import 'package:shonenx/features/history/providers/read_history_provider.dart';
 import 'package:shonenx/features/history/providers/watch_history_provider.dart';
 import 'package:shonenx/features/tracking/providers/media_tracking_provider.dart';
 import 'package:shonenx/features/tracking/providers/tracker_registry.dart';
+import 'package:shonenx/features/tracking/providers/tracking_prefs_provider.dart';
 import 'package:shonenx/features/episode_metadata/providers/episode_metadata_providers.dart';
 import 'package:shonenx/features/tv_mode/presentation/widgets/tv_episode_list_panel.dart';
 
@@ -106,9 +107,17 @@ class _EpisodeListPanelState extends ConsumerState<EpisodeListPanel> {
     setState(() {
       _isRetrying = true;
     });
-    ref.invalidate(matchedMediaProvider);
-    ref.invalidate(episodesListProvider);
-    ref.invalidate(sourceEpisodesProvider);
+    ref.invalidate(matchedMediaProvider(matchArgs));
+    ref.invalidate(episodesListProvider(matchArgs));
+    if (widget.media.sourceId != null) {
+      ref.invalidate(
+        sourceEpisodesProvider((
+          providerId: widget.media.id,
+          sourceId: widget.media.sourceId!,
+          type: widget.media.type,
+        )),
+      );
+    }
     Future.delayed(const Duration(seconds: 2), () {
       if (mounted) {
         setState(() {
@@ -139,9 +148,26 @@ class _EpisodeListPanelState extends ConsumerState<EpisodeListPanel> {
     final readHistoryEntries =
         ref.watch(historyChaptersProvider(widget.media.id)).value ?? [];
 
+    final syncThreshold = ref.watch(trackingPrefsProvider).syncThreshold;
+
     final historyWatchedSet = widget.media.type == MediaType.ANIME
-        ? watchHistoryEntries.map((e) => e.episodeNumber).toSet()
-        : readHistoryEntries.map((e) => e.chapterNumber).toSet();
+        ? watchHistoryEntries
+              .where(
+                (e) =>
+                    e.durationInMilliseconds > 0 &&
+                    e.positionInMilliseconds >=
+                        e.durationInMilliseconds * syncThreshold,
+              )
+              .map((e) => e.episodeNumber)
+              .toSet()
+        : readHistoryEntries
+              .where(
+                (e) =>
+                    e.totalPages > 0 &&
+                    e.positionPage >= (e.totalPages * syncThreshold).ceil(),
+              )
+              .map((e) => e.chapterNumber)
+              .toSet();
 
     final maxHistoryEp = historyWatchedSet.fold<double>(
       0.0,
@@ -151,6 +177,12 @@ class _EpisodeListPanelState extends ConsumerState<EpisodeListPanel> {
     final effectiveWatchedProgress = widget.watchedProgress > 0
         ? widget.watchedProgress
         : (trackedProgress > 0 ? trackedProgress : maxHistoryEp);
+
+    final effectiveCurrentEpisodeNumber =
+        widget.currentEpisodeNumber ??
+        (widget.media.type == MediaType.ANIME
+            ? watchHistoryEntries.firstOrNull?.episodeNumber
+            : readHistoryEntries.firstOrNull?.chapterNumber);
 
     return episodesAsync.when(
       loading: () {
@@ -296,7 +328,7 @@ class _EpisodeListPanelState extends ConsumerState<EpisodeListPanel> {
           _hasInitializedSort = true;
           final maxEpNum = uniqueNums.last;
           final currentProgress =
-              widget.currentEpisodeNumber ?? widget.watchedProgress;
+              effectiveCurrentEpisodeNumber ?? effectiveWatchedProgress;
           if (maxEpNum > 0 && currentProgress >= maxEpNum * 0.5) {
             _descending = true;
           }
@@ -320,10 +352,10 @@ class _EpisodeListPanelState extends ConsumerState<EpisodeListPanel> {
         }
 
         if (chunks.length > 1 &&
-            widget.currentEpisodeNumber != null &&
-            _lastAutoChunkEpisode != widget.currentEpisodeNumber?.toInt()) {
-          _lastAutoChunkEpisode = widget.currentEpisodeNumber?.toInt();
-          final target = widget.currentEpisodeNumber!;
+            effectiveCurrentEpisodeNumber != null &&
+            _lastAutoChunkEpisode != effectiveCurrentEpisodeNumber.toInt()) {
+          _lastAutoChunkEpisode = effectiveCurrentEpisodeNumber.toInt();
+          final target = effectiveCurrentEpisodeNumber;
           final autoIdx = chunks.indexWhere(
             (c) =>
                 c.min != null &&
@@ -572,8 +604,9 @@ class _EpisodeListPanelState extends ConsumerState<EpisodeListPanel> {
                   effectiveWatchedProgress: effectiveWatchedProgress,
                   historyWatchedSet: historyWatchedSet,
                   currentIndex: finalEpisodes.indexWhere(
-                    (ep) => ep.number == widget.currentEpisodeNumber,
+                    (ep) => ep.number == effectiveCurrentEpisodeNumber,
                   ),
+                  currentEpisodeNumber: effectiveCurrentEpisodeNumber,
                 ),
               ),
             ),
@@ -591,6 +624,7 @@ class _EpisodeListPanelState extends ConsumerState<EpisodeListPanel> {
     required double effectiveWatchedProgress,
     required Set<double> historyWatchedSet,
     int currentIndex = -1,
+    double? currentEpisodeNumber,
   }) {
     if (widget.isTv) {
       return TvEpisodeListPanel(
@@ -599,7 +633,7 @@ class _EpisodeListPanelState extends ConsumerState<EpisodeListPanel> {
         source: source,
         effectiveWatchedProgress: effectiveWatchedProgress,
         historyWatchedSet: historyWatchedSet,
-        currentEpisodeNumber: widget.currentEpisodeNumber,
+        currentEpisodeNumber: currentEpisodeNumber,
         onEpisodeTap: widget.onEpisodeTap,
       );
     }
@@ -643,7 +677,25 @@ class _EpisodeListPanelState extends ConsumerState<EpisodeListPanel> {
               case EpisodeViewMode.compact:
                 offset = currentIndex * 52.0;
               case EpisodeViewMode.cover:
-                offset = currentIndex * 140.0;
+                final cols = panelTier.pick(
+                  compact: 1,
+                  medium: 1,
+                  expanded: 2,
+                  large: 2,
+                  ultraLarge: 3,
+                );
+                final pad = panelTier.pickOrFold(
+                  compact: 8.0,
+                  medium: 12.0,
+                  large: 16.0,
+                );
+                final spacing = panelTier.pickOrFold(
+                  compact: 8.0,
+                  medium: 10.0,
+                  large: 12.0,
+                );
+                final row = currentIndex ~/ cols;
+                offset = pad + row * (90.0 + spacing);
               case EpisodeViewMode.grid:
                 final cols = panelTier.pick(
                   compact: 2,
@@ -718,7 +770,7 @@ class _EpisodeListPanelState extends ConsumerState<EpisodeListPanel> {
               itemCount: episodes.length,
               itemBuilder: (context, i) {
                 final ep = episodes[i];
-                final isCurrent = widget.currentEpisodeNumber == ep.number;
+                final isCurrent = currentEpisodeNumber == ep.number;
                 final isWatched =
                     effectiveWatchedProgress >= ep.number ||
                     historyWatchedSet.contains(ep.number);
@@ -753,7 +805,7 @@ class _EpisodeListPanelState extends ConsumerState<EpisodeListPanel> {
               itemCount: episodes.length,
               itemBuilder: (context, i) {
                 final ep = episodes[i];
-                final isCurrent = widget.currentEpisodeNumber == ep.number;
+                final isCurrent = currentEpisodeNumber == ep.number;
                 final isWatched =
                     effectiveWatchedProgress >= ep.number ||
                     historyWatchedSet.contains(ep.number);
@@ -780,11 +832,11 @@ class _EpisodeListPanelState extends ConsumerState<EpisodeListPanel> {
 
           case EpisodeViewMode.cover:
             final coverColumns = panelTier.pick(
-              compact: 2,
-              medium: 3,
-              expanded: 4,
-              large: 5,
-              ultraLarge: 6,
+              compact: 1,
+              medium: 1,
+              expanded: 2,
+              large: 2,
+              ultraLarge: 3,
             );
             final coverPad = panelTier.pickOrFold(
               compact: 8.0,
@@ -794,7 +846,7 @@ class _EpisodeListPanelState extends ConsumerState<EpisodeListPanel> {
             final coverSpacing = panelTier.pickOrFold(
               compact: 8.0,
               medium: 10.0,
-              large: 14.0,
+              large: 12.0,
             );
 
             return GridView.builder(
@@ -804,12 +856,12 @@ class _EpisodeListPanelState extends ConsumerState<EpisodeListPanel> {
                 crossAxisCount: coverColumns,
                 crossAxisSpacing: coverSpacing,
                 mainAxisSpacing: coverSpacing,
-                childAspectRatio: 16 / 10,
+                mainAxisExtent: 90.0,
               ),
               itemCount: episodes.length,
               itemBuilder: (context, i) {
                 final ep = episodes[i];
-                final isCurrent = widget.currentEpisodeNumber == ep.number;
+                final isCurrent = currentEpisodeNumber == ep.number;
                 final isWatched =
                     effectiveWatchedProgress >= ep.number ||
                     historyWatchedSet.contains(ep.number);
@@ -865,7 +917,7 @@ class _EpisodeListPanelState extends ConsumerState<EpisodeListPanel> {
               itemCount: episodes.length,
               itemBuilder: (context, i) {
                 final ep = episodes[i];
-                final isCurrent = widget.currentEpisodeNumber == ep.number;
+                final isCurrent = currentEpisodeNumber == ep.number;
                 final isWatched =
                     effectiveWatchedProgress >= ep.number ||
                     historyWatchedSet.contains(ep.number);
@@ -919,7 +971,7 @@ class _EpisodeListPanelState extends ConsumerState<EpisodeListPanel> {
               itemCount: episodes.length,
               itemBuilder: (context, i) {
                 final ep = episodes[i];
-                final isCurrent = widget.currentEpisodeNumber == ep.number;
+                final isCurrent = currentEpisodeNumber == ep.number;
                 final isWatched =
                     effectiveWatchedProgress >= ep.number ||
                     historyWatchedSet.contains(ep.number);
@@ -952,7 +1004,7 @@ class _ViewModeToggle extends StatelessWidget {
     EpisodeViewMode.grid => Icons.grid_view_outlined,
     EpisodeViewMode.box => Icons.tag_outlined,
     EpisodeViewMode.compact => Icons.format_list_bulleted_rounded,
-    EpisodeViewMode.cover => Icons.movie_creation_outlined,
+    EpisodeViewMode.cover => Icons.video_library_outlined,
   };
 
   @override

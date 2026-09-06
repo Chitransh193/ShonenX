@@ -20,7 +20,6 @@ import 'package:shonenx/features/player/presentation/widgets/gesture_overlay.dar
 import 'package:shonenx/features/player/presentation/widgets/keyboard_shortcuts_sheet.dart';
 import 'package:shonenx/features/player/presentation/widgets/player_keyboard_listener.dart';
 import 'package:shonenx/features/player/presentation/widgets/top_controls.dart';
-import 'package:shonenx/features/player/providers/aniskip_provider.dart';
 import 'package:shonenx/features/player/providers/player_controller.dart';
 import 'package:shonenx/features/player/providers/player_prefs_provider.dart';
 import 'package:shonenx/features/player/providers/video_engine_provider.dart';
@@ -43,7 +42,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 
   bool _showControls = false;
   bool _lockControls = false;
+  bool _showLockedIcon = false;
   Timer? _controlsTimer;
+  Timer? _lockedIconTimer;
 
   bool _isFullScreen = false;
   bool _isEpisodePanelOpen = false;
@@ -57,19 +58,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       return (widget.mode as PlayerModeOnline).media.title.availableTitle;
     }
     return (widget.mode as PlayerModeOffline).title ?? 'Local Media';
-  }
-
-  /// Constructs [AniSkipArgs] from the current mode, or returns null for offline mode.
-  AniSkipArgs? _getAniSkipArgs(VideoEngine engine) {
-    if (widget.mode is PlayerModeOnline) {
-      final onlineMode = widget.mode as PlayerModeOnline;
-      return AniSkipArgs(
-        media: onlineMode.media,
-        episodeNumber: onlineMode.episode.number,
-        episodeLength: engine.currentDuration.inSeconds,
-      );
-    }
-    return null;
   }
 
   @override
@@ -117,6 +105,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       WakelockPlus.disable();
     } catch (_) {}
     _controlsTimer?.cancel();
+    _lockedIconTimer?.cancel();
     _disposeSystemUI();
 
     try {
@@ -159,15 +148,60 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     }
   }
 
-  void _showControlsTemporarily() {
+  void _startLockedIconTimer() {
+    _lockedIconTimer?.cancel();
+    _lockedIconTimer = Timer(const Duration(milliseconds: 2500), () {
+      if (mounted) setState(() => _showLockedIcon = false);
+    });
+  }
+
+  void _showLockedIconTemporarily() {
+    if (!_lockControls) return;
+    _lockedIconTimer?.cancel();
+    if (!_showLockedIcon && mounted) setState(() => _showLockedIcon = true);
+    _startLockedIconTimer();
+  }
+
+  void _toggleLockedIcon() {
+    if (!_lockControls) return;
+    if (_showLockedIcon) {
+      _lockedIconTimer?.cancel();
+      if (mounted) setState(() => _showLockedIcon = false);
+    } else {
+      _showLockedIconTemporarily();
+    }
+  }
+
+  void _lockScreen() {
     _controlsTimer?.cancel();
-    if (!_showControls) setState(() => _showControls = true);
+    setState(() {
+      _lockControls = true;
+      _showControls = false;
+      _showLockedIcon = true;
+    });
+    _startLockedIconTimer();
+  }
+
+  void _unlockScreen() {
+    _lockedIconTimer?.cancel();
+    setState(() {
+      _lockControls = false;
+      _showLockedIcon = false;
+    });
+    _showControlsTemporarily();
+  }
+
+  void _showControlsTemporarily() {
+    if (_lockControls) return;
+    _controlsTimer?.cancel();
+    if (!_showControls && mounted) setState(() => _showControls = true);
     _controlsTimer = Timer(_controlsAutoHideDuration, () {
       if (mounted) setState(() => _showControls = false);
     });
   }
 
   void _toggleControls() {
+    if (_lockControls) return;
     if (_showControls) {
       _controlsTimer?.cancel();
       setState(() => _showControls = false);
@@ -203,6 +237,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   }
 
   void _onMouseHover(PointerHoverEvent event) {
+    if (_lockControls) return;
     if (event.kind == PointerDeviceKind.touch) return;
     if (_lastHoverPosition == event.position) return;
     _lastHoverPosition = event.position;
@@ -291,16 +326,24 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     );
   }
 
-  void _handlePop(
+  bool _isExiting = false;
+
+  Future<void> _handlePop(
     bool didPop,
     VideoEngine engine,
     PlayerController controller,
-  ) {
-    if (!didPop) {
-      try {
-        engine.pause();
-      } catch (_) {}
-      controller.captureExitThumbnail();
+  ) async {
+    if (_lockControls) {
+      _unlockScreen();
+      return;
+    }
+    if (didPop || _isExiting) return;
+    _isExiting = true;
+    try {
+      engine.pause();
+    } catch (_) {}
+    await controller.saveExitProgress();
+    if (mounted) {
       context.pop();
     }
   }
@@ -318,15 +361,41 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   }
 
   Widget _buildLockedOverlay() {
-    return Center(
-      child: IconButton.filled(
-        padding: const EdgeInsets.all(15),
-        icon: const Icon(
-          Icons.lock_open_rounded,
-          color: Colors.white,
-          size: 50,
-        ),
-        onPressed: () => setState(() => _lockControls = false),
+    return Positioned.fill(
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: _toggleLockedIcon,
+            ),
+          ),
+          AnimatedOpacity(
+            opacity: _showLockedIcon ? 1.0 : 0.0,
+            duration: const Duration(milliseconds: 250),
+            child: IgnorePointer(
+              ignoring: !_showLockedIcon,
+              child: SafeArea(
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 32),
+                    child: IconButton.filled(
+                      style: IconButton.styleFrom(
+                        backgroundColor: Colors.black.withValues(alpha: 0.55),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.all(12),
+                      ),
+                      icon: const Icon(Icons.lock_outline_rounded, size: 26),
+                      tooltip: 'Unlock',
+                      onPressed: _unlockScreen,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -336,7 +405,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     required VideoEngine engine,
     required PlayerState playerState,
     required PlayerController controller,
-    required AniSkipArgs? aniSkipArgs,
   }) {
     final mediaQuery = MediaQuery.of(context);
     final width = mediaQuery.size.width;
@@ -356,7 +424,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
           mode: widget.mode,
           playerState: playerState,
           controller: controller,
-          onBack: context.pop,
+          onBack: () => _handlePop(false, engine, controller),
           onComments: _showCommentsSheet,
         ),
         CenterControls(
@@ -367,7 +435,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
           engine: engine,
         ),
         BottomControls(
-          aniskipArgs: aniSkipArgs,
           showControls: _showControls,
           engine: engine,
           playerState: playerState,
@@ -377,8 +444,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
           isFullScreen: _isFullScreen,
           onToggleFullScreen: _toggleFullScreen,
           onShowEpisodePanel: _toggleEpisodePanel,
-          onToggleLockControls: () =>
-              setState(() => _lockControls = !_lockControls),
+          onToggleLockControls: _lockScreen,
         ),
       ],
     );
@@ -410,7 +476,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     final playerState = ref.watch(playerControllerProvider);
     final controller = ref.read(playerControllerProvider.notifier);
     final engine = ref.watch(videoEngineProvider);
-    final aniSkipArgs = _getAniSkipArgs(engine);
 
     ref.listen(playerControllerProvider.select((s) => s.error), (prev, next) {
       if (next != null && next != prev && mounted) {
@@ -525,28 +590,33 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
             } else if (_isFullScreen) {
               _toggleFullScreen();
             } else {
-              context.pop();
+              _handlePop(false, engine, controller);
             }
           },
           child: MouseRegion(
-            cursor: _showControls
-                ? SystemMouseCursors.basic
-                : SystemMouseCursors.none,
+            cursor: _lockControls
+                ? (_showLockedIcon
+                      ? SystemMouseCursors.basic
+                      : SystemMouseCursors.none)
+                : (_showControls
+                      ? SystemMouseCursors.basic
+                      : SystemMouseCursors.none),
             onHover: _onMouseHover,
             child: Stack(
               children: [
                 _buildVideoLayer(engine, playerState),
                 if (playerState.activeSubtitle != null)
                   const CustomSubtitleOverlay(),
-                Positioned.fill(
-                  child: PlayerGestureOverlay(
-                    onToggleControls: _toggleControls,
-                    onHideControls: _hideControls,
-                    onRightClick: _toggleEpisodePanel,
-                    onSeek: engine.seekRelative,
-                    onSetSpeed: engine.setSpeed,
+                if (!_lockControls)
+                  Positioned.fill(
+                    child: PlayerGestureOverlay(
+                      onToggleControls: _toggleControls,
+                      onHideControls: _hideControls,
+                      onRightClick: _toggleEpisodePanel,
+                      onSeek: engine.seekRelative,
+                      onSetSpeed: engine.setSpeed,
+                    ),
                   ),
-                ),
                 if (_lockControls)
                   _buildLockedOverlay()
                 else
@@ -555,7 +625,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                     engine: engine,
                     playerState: playerState,
                     controller: controller,
-                    aniSkipArgs: aniSkipArgs,
                   ),
               ],
             ),
