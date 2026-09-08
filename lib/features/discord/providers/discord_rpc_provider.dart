@@ -88,7 +88,6 @@ class DiscordRpcNotifier extends Notifier<DiscordRpcState>
 
   Future<void> _initConnection(bool enabled) async {
     if (!enabled) return;
-    _rpcService.resetPresenceState();
     final discordState = ref.read(discordProvider);
     await _connect(discordState.token);
     await updateBrowsingPresence();
@@ -170,20 +169,30 @@ class DiscordRpcNotifier extends Notifier<DiscordRpcState>
     required UnifiedMedia anime,
     required int episodeNumber,
     String? episodeTitle,
+    Duration? position,
+    Duration? duration,
     int? timeStampMs,
     int? durationMs,
     int? totalEpisodes,
+    bool isPlaying = true,
   }) async {
     if (!state.isEnabled) return;
     if (!state.customSettings.enablePlayerPresence) return;
     await _ensureConnected();
+    final pos =
+        position ??
+        (timeStampMs != null ? Duration(milliseconds: timeStampMs) : null);
+    final dur =
+        duration ??
+        (durationMs != null ? Duration(milliseconds: durationMs) : null);
     await _rpcService.updateAnimePresence(
       anime: anime,
       episodeNumber: episodeNumber,
       episodeTitle: episodeTitle,
-      timeStampMs: timeStampMs,
-      durationMs: durationMs,
+      position: pos,
+      duration: dur,
       totalEpisodes: totalEpisodes,
+      isPlaying: isPlaying,
     );
     state = state.copyWith(isConnected: _rpcService.isConnected);
   }
@@ -191,17 +200,25 @@ class DiscordRpcNotifier extends Notifier<DiscordRpcState>
   Future<void> updateAnimePresencePaused({
     required UnifiedMedia anime,
     required int episodeNumber,
+    Duration? position,
+    Duration? duration,
     int? timeStampMs,
     int? durationMs,
   }) async {
     if (!state.isEnabled) return;
     if (!state.customSettings.enablePlayerPresence) return;
     await _ensureConnected();
+    final pos =
+        position ??
+        (timeStampMs != null ? Duration(milliseconds: timeStampMs) : null);
+    final dur =
+        duration ??
+        (durationMs != null ? Duration(milliseconds: durationMs) : null);
     await _rpcService.updateAnimePresencePaused(
       anime: anime,
       episodeNumber: episodeNumber,
-      timeStampMs: timeStampMs,
-      durationMs: durationMs,
+      position: pos,
+      duration: dur,
     );
     state = state.copyWith(isConnected: _rpcService.isConnected);
   }

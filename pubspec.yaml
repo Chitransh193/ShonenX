@@ -79,14 +79,18 @@ dependencies:
   flutter_markdown_plus: ^1.0.12
   palette_generator: ^0.3.3+7
   skeletonizer: ^2.1.3
-  flutter_discord_rpc: ^1.1.0
+  dart_discord_presence: ^1.2.0
   rhttp: ^0.18.0
   intl: ^0.20.3
   local_auth: ^3.0.1
   crypto: ^3.0.3
-
   cupertino_ui: any
 dependency_overrides:
+  flutter_secure_storage_linux:
+    git:
+      url: https://github.com/EchoEllet/flutter_secure_storage.git
+      ref: feat/linux-rewrite
+      path: flutter_secure_storage_linux
   flutter_inappwebview:
     git:
       url: https://github.com/roshancodespace/flutter_inappwebview.git

@@ -2,8 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dart_discord_presence/dart_discord_presence.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_discord_rpc/flutter_discord_rpc.dart';
 import 'package:http/http.dart' as http;
 import 'package:shonenx/core/utils/app_logger.dart';
 import 'package:shonenx/shared/models/unified_media.dart';
@@ -14,11 +14,13 @@ class DiscordRpcService {
       'wss://gateway.discord.gg/?v=10&encoding=json';
   static const String _appIconUrl =
       'https://raw.githubusercontent.com/roshancodespace/ShonenX/refs/heads/main/assets/images/app_icon.png';
+  static const String _defaultAssetKey = 'app_icon';
 
   final _log = AppLogger.scope(DiscordRpcService);
 
+  DiscordRPC? _discord;
   bool _isDesktopInitialized = false;
-  bool _hasDesktopIpcFailed = false;
+
   WebSocket? _gatewaySocket;
   Timer? _heartbeatTimer;
   int? _heartbeatInterval;
@@ -29,32 +31,74 @@ class DiscordRpcService {
   String? _token;
   bool _isConnected = false;
   Map<String, dynamic>? _lastPresencePayload;
-  RPCActivity? _lastDesktopActivity;
+  DiscordPresence? _lastPresence;
 
   String? _activeMediaId;
-  int? _activeEpisodeNumber;
-  int? _mediaStartTimeMs;
-  int? _browsingStartTimeMs;
-  int? _animeStartTimeMs;
-  int? _animeEndTimeMs;
+  DateTime? _mediaStartTime;
+  DateTime? _browsingStartTime;
   final Map<String, String> _assetCache = {};
 
-  bool get isDesktopPlatform =>
-      !kIsWeb && (Platform.isLinux || Platform.isMacOS || Platform.isWindows);
+  bool get isDesktopPlatform => !kIsWeb && DiscordRPC.isAvailable;
 
   bool get isConnected =>
-      _isConnected || (isDesktopPlatform && _isDesktopInitialized);
+      (_discord != null && _discord!.isConnected) || _isConnected;
+
   Map<String, dynamic>? get lastPresencePayload => _lastPresencePayload;
 
   Future<void> initDesktopRpc() async {
     if (!isDesktopPlatform || _isDesktopInitialized) return;
     try {
-      _log.i('Initializing FlutterDiscordRPC for app $applicationId...');
-      await FlutterDiscordRPC.initialize(applicationId);
+      _log.i('Initializing DiscordRPC for app $applicationId...');
+      if (_discord != null) {
+        try {
+          await _discord!.dispose();
+        } catch (_) {}
+      }
+
+      final client = DiscordRPC();
+      _discord = client;
+      final readyCompleter = Completer<void>();
+
+      client.onReady.listen((event) async {
+        _log.s('Discord RPC connected as ${event.user.username}');
+        if (!readyCompleter.isCompleted) {
+          readyCompleter.complete();
+        }
+        if (_lastPresence != null) {
+          try {
+            await Future.delayed(const Duration(milliseconds: 200));
+            client.setPresence(_lastPresence!);
+          } catch (e, s) {
+            _log.e('Failed to set presence on ready', e, s);
+          }
+        }
+      });
+      client.onError.listen((event) {
+        _log.w('Discord RPC error: ${event.message}');
+      });
+      client.onDisconnected.listen((event) {
+        _log.i('Discord RPC disconnected: ${event.message}');
+      });
+
+      await client.initialize(applicationId);
+
+      // Wait for Discord IPC onReady to ensure connection is authenticated
+      try {
+        await readyCompleter.future.timeout(const Duration(seconds: 2));
+      } catch (_) {
+        _log.w('Discord RPC onReady wait timed out or Discord not running');
+      }
+
       _isDesktopInitialized = true;
-      _log.s('FlutterDiscordRPC initialized successfully');
+      _log.s(
+        'DiscordRPC initialized successfully (connected: ${client.isConnected})',
+      );
+    } on DiscordNotRunningException {
+      _log.i('Discord is not running');
+    } on DiscordConnectionException catch (e) {
+      _log.w('Discord connection failed: ${e.message}');
     } catch (e, s) {
-      _log.e('Failed to initialize FlutterDiscordRPC', e, s);
+      _log.e('Failed to initialize DiscordRPC', e, s);
     }
   }
 
@@ -71,21 +115,11 @@ class DiscordRpcService {
 
     try {
       if (isDesktopPlatform) {
-        await initDesktopRpc();
-        if (_isDesktopInitialized && !_hasDesktopIpcFailed) {
-          _log.i('Connecting Desktop Discord RPC via IPC...');
-          try {
-            await FlutterDiscordRPC.instance.connect();
-            _isConnected = true;
-            if (_lastDesktopActivity != null) {
-              await FlutterDiscordRPC.instance.setActivity(
-                activity: _lastDesktopActivity!,
-              );
-            }
-          } catch (e, s) {
-            _hasDesktopIpcFailed = true;
-            _log.e('Failed to connect Desktop Discord RPC via IPC', e, s);
-          }
+        if (!_isDesktopInitialized ||
+            _discord == null ||
+            !_discord!.isConnected) {
+          _isDesktopInitialized = false;
+          await initDesktopRpc();
         }
       }
 
@@ -196,8 +230,6 @@ class DiscordRpcService {
     _gatewaySocket?.add(jsonEncode(payload));
   }
 
-  static const String _defaultAssetKey = 'app_icon';
-
   Future<String> _processImageUrl(String? url) async {
     if (url == null || url.isEmpty) return _defaultAssetKey;
     if (_token == null || _token!.isEmpty) return _defaultAssetKey;
@@ -234,19 +266,30 @@ class DiscordRpcService {
     return _defaultAssetKey;
   }
 
+  DiscordAsset _asset(String? url, {String? text}) {
+    final trimmed = url?.trim();
+    if (trimmed != null &&
+        trimmed.isNotEmpty &&
+        trimmed != _appIconUrl &&
+        (trimmed.startsWith('http://') || trimmed.startsWith('https://'))) {
+      return DiscordAsset(url: trimmed, text: text);
+    }
+    return DiscordAsset(key: _defaultAssetKey, text: text);
+  }
+
   void _dispatchPresence({
-    required RPCActivity desktopActivity,
+    required DiscordPresence desktopPresence,
     required Map<String, dynamic> gatewayPayload,
   }) {
-    _lastDesktopActivity = desktopActivity;
+    _lastPresence = desktopPresence;
     _lastPresencePayload = gatewayPayload;
 
-    if (isDesktopPlatform && _isDesktopInitialized) {
+    if (isDesktopPlatform && _discord != null && _discord!.isConnected) {
       try {
-        _log.d('Updating activity via FlutterDiscordRPC');
-        FlutterDiscordRPC.instance.setActivity(activity: desktopActivity);
+        _log.d('Updating presence via DiscordRPC');
+        _discord!.setPresence(desktopPresence);
       } catch (e, s) {
-        _log.e('Failed to set desktop activity', e, s);
+        _log.e('Failed to set desktop presence', e, s);
       }
     }
 
@@ -265,66 +308,61 @@ class DiscordRpcService {
     required UnifiedMedia anime,
     required int episodeNumber,
     String? episodeTitle,
-    int? timeStampMs,
-    int? durationMs,
+    Duration? position,
+    Duration? duration,
     int? totalEpisodes,
+    bool isPlaying = true,
   }) async {
-    final currentSeconds = timeStampMs != null
-        ? (timeStampMs / 1000).round()
-        : 0;
-    final totalSeconds = durationMs != null ? (durationMs / 1000).round() : 0;
-
-    final nowMs = DateTime.now().millisecondsSinceEpoch;
-    final calcStartMs = nowMs - (currentSeconds * 1000);
-    final calcEndMs = (totalSeconds > 60 && totalSeconds > currentSeconds)
-        ? nowMs + ((totalSeconds - currentSeconds) * 1000)
-        : null;
-
-    if (_activeMediaId != anime.id ||
-        _activeEpisodeNumber != episodeNumber ||
-        _animeStartTimeMs == null ||
-        (_animeStartTimeMs! - calcStartMs).abs() > 3000 ||
-        (_animeEndTimeMs == null && calcEndMs != null)) {
-      _activeMediaId = anime.id;
-      _activeEpisodeNumber = episodeNumber;
-      _animeStartTimeMs = calcStartMs;
-      _animeEndTimeMs = calcEndMs;
-    }
-    _browsingStartTimeMs = null;
-    _mediaStartTimeMs = null;
-
-    final startTimeMs = _animeStartTimeMs!;
-    final endTimeMs = _animeEndTimeMs;
+    _browsingStartTime = null;
+    _mediaStartTime = null;
 
     final title = anime.title.availableTitle;
     final epString =
         'Episode $episodeNumber${totalEpisodes != null ? '/$totalEpisodes' : ''}';
-    final stateString = episodeTitle != null && episodeTitle.isNotEmpty
+    final baseState = episodeTitle != null && episodeTitle.isNotEmpty
         ? '$epString – $episodeTitle'
         : epString;
 
     final coverUrl = anime.cover ?? anime.banner;
     final mediaUrl = 'https://anilist.co/anime/${anime.id}';
 
-    _log.i('Updating Anime presence: $title ($epString)');
+    DiscordTimestamps? timestamps;
+    String stateString = baseState;
 
-    final desktopActivity = RPCActivity(
+    final hasValidDuration = duration != null && duration > Duration.zero;
+    final hasValidPosition = position != null && position > Duration.zero;
+
+    if (isPlaying) {
+      final now = DateTime.now();
+      if (hasValidDuration && hasValidPosition && duration > position) {
+        timestamps = DiscordTimestamps.range(
+          now.subtract(position),
+          now.add(duration - position),
+        );
+      } else if (hasValidPosition) {
+        timestamps = DiscordTimestamps.started(now.subtract(position));
+      } else {
+        timestamps = DiscordTimestamps.started(now);
+      }
+    } else {
+      final timeDisplay = (hasValidPosition && hasValidDuration)
+          ? ' • ${_formatDuration(position)} / ${_formatDuration(duration)}'
+          : '';
+      stateString = '$baseState$timeDisplay (Paused)';
+    }
+
+    _log.i(
+      'Updating Anime presence (${isPlaying ? "Playing" : "Paused"}): $title ($stateString)',
+    );
+
+    final desktopPresence = DiscordPresence(
+      type: DiscordActivityType.watching,
       details: title,
       state: stateString,
-      timestamps: RPCTimestamps(start: startTimeMs, end: endTimeMs),
-      assets: RPCAssets(
-        largeImage: coverUrl ?? _appIconUrl,
-        largeText: title,
-        smallImage: _appIconUrl,
-        smallText: 'ShonenX',
-      ),
-      buttons: [
-        RPCButton(label: 'View Anime', url: mediaUrl),
-        const RPCButton(
-          label: 'Watch on ShonenX',
-          url: 'https://github.com/roshancodespace/shonenx',
-        ),
-      ],
+      timestamps: timestamps,
+      largeAsset: _asset(coverUrl, text: title),
+      smallAsset: _asset(_appIconUrl, text: 'ShonenX'),
+      statusDisplayType: DiscordStatusDisplayType.details,
     );
 
     final gatewayPayload = {
@@ -334,14 +372,15 @@ class DiscordRpcService {
         'activities': [
           {
             'application_id': applicationId,
-            'name': 'ShonenX',
+            'name': title,
             'type': 3,
             'details': title,
             'state': stateString,
-            'timestamps': {
-              'start': startTimeMs,
-              if (endTimeMs != null) 'end': endTimeMs,
-            },
+            if (timestamps?.start != null)
+              'timestamps': {
+                'start': timestamps!.start! * 1000,
+                if (timestamps.end != null) 'end': timestamps.end! * 1000,
+              },
             'assets': {
               'large_image': await _processImageUrl(coverUrl),
               'large_text': title,
@@ -363,7 +402,7 @@ class DiscordRpcService {
     };
 
     _dispatchPresence(
-      desktopActivity: desktopActivity,
+      desktopPresence: desktopPresence,
       gatewayPayload: gatewayPayload,
     );
   }
@@ -371,73 +410,23 @@ class DiscordRpcService {
   Future<void> updateAnimePresencePaused({
     required UnifiedMedia anime,
     required int episodeNumber,
+    Duration? position,
+    Duration? duration,
     int? timeStampMs,
     int? durationMs,
   }) async {
-    final currentSec = timeStampMs != null ? (timeStampMs / 1000).round() : 0;
-    final totalSec = durationMs != null ? (durationMs / 1000).round() : 0;
-    final timeDisplay = (currentSec > 0 && totalSec > 0)
-        ? ' • ${_formatDuration(Duration(seconds: currentSec))} / ${_formatDuration(Duration(seconds: totalSec))}'
-        : '';
-
-    final title = anime.title.availableTitle;
-    final coverUrl = anime.cover ?? anime.banner;
-    final mediaUrl = 'https://anilist.co/anime/${anime.id}';
-
-    _log.i('Updating Anime presence (Paused): $title');
-
-    final desktopActivity = RPCActivity(
-      details: title,
-      state: 'Episode $episodeNumber$timeDisplay (Paused)',
-      assets: RPCAssets(
-        largeImage: coverUrl ?? _appIconUrl,
-        largeText: title,
-        smallImage: _appIconUrl,
-        smallText: 'ShonenX',
-      ),
-      buttons: [
-        RPCButton(label: 'View Anime', url: mediaUrl),
-        const RPCButton(
-          label: 'Watch on ShonenX',
-          url: 'https://github.com/roshancodespace/shonenx',
-        ),
-      ],
-    );
-
-    final gatewayPayload = {
-      'op': 3,
-      'd': {
-        'since': null,
-        'activities': [
-          {
-            'application_id': applicationId,
-            'name': 'ShonenX',
-            'type': 3,
-            'details': title,
-            'state': 'Episode $episodeNumber$timeDisplay (Paused)',
-            'assets': {
-              'large_image': await _processImageUrl(coverUrl),
-              'large_text': title,
-              'small_image': await _processImageUrl(_appIconUrl),
-              'small_text': 'ShonenX',
-            },
-            'buttons': ['View Anime', 'Watch on ShonenX'],
-            'metadata': {
-              'button_urls': [
-                mediaUrl,
-                'https://github.com/roshancodespace/shonenx',
-              ],
-            },
-          },
-        ],
-        'status': 'online',
-        'afk': false,
-      },
-    };
-
-    _dispatchPresence(
-      desktopActivity: desktopActivity,
-      gatewayPayload: gatewayPayload,
+    final pos =
+        position ??
+        (timeStampMs != null ? Duration(milliseconds: timeStampMs) : null);
+    final dur =
+        duration ??
+        (durationMs != null ? Duration(milliseconds: durationMs) : null);
+    await updateAnimePresence(
+      anime: anime,
+      episodeNumber: episodeNumber,
+      position: pos,
+      duration: dur,
+      isPlaying: false,
     );
   }
 
@@ -449,11 +438,11 @@ class DiscordRpcService {
     int? totalPages,
     int? totalChapters,
   }) async {
-    if (_activeMediaId != manga.id || _mediaStartTimeMs == null) {
+    if (_activeMediaId != manga.id || _mediaStartTime == null) {
       _activeMediaId = manga.id;
-      _mediaStartTimeMs = DateTime.now().millisecondsSinceEpoch;
+      _mediaStartTime = DateTime.now();
     }
-    _browsingStartTimeMs = null;
+    _browsingStartTime = null;
 
     final title = manga.title.availableTitle;
     final chString = chapterNumber != null
@@ -468,23 +457,16 @@ class DiscordRpcService {
 
     _log.i('Updating Manga presence: $title ($chString)');
 
-    final desktopActivity = RPCActivity(
+    final timestamps = DiscordTimestamps.started(_mediaStartTime!);
+
+    final desktopPresence = DiscordPresence(
+      type: DiscordActivityType.playing,
       details: title,
       state: '$chString$pageString',
-      timestamps: RPCTimestamps(start: _mediaStartTimeMs),
-      assets: RPCAssets(
-        largeImage: coverUrl ?? _appIconUrl,
-        largeText: title,
-        smallImage: _appIconUrl,
-        smallText: 'ShonenX',
-      ),
-      buttons: [
-        RPCButton(label: 'View Manga', url: mediaUrl),
-        const RPCButton(
-          label: 'Read on ShonenX',
-          url: 'https://github.com/roshancodespace/shonenx',
-        ),
-      ],
+      timestamps: timestamps,
+      largeAsset: _asset(coverUrl, text: title),
+      smallAsset: _asset(_appIconUrl, text: 'ShonenX'),
+      statusDisplayType: DiscordStatusDisplayType.details,
     );
 
     final gatewayPayload = {
@@ -494,11 +476,11 @@ class DiscordRpcService {
         'activities': [
           {
             'application_id': applicationId,
-            'name': 'ShonenX',
+            'name': title,
             'type': 0,
             'details': title,
             'state': '$chString$pageString',
-            'timestamps': {'start': _mediaStartTimeMs},
+            'timestamps': {'start': _mediaStartTime!.millisecondsSinceEpoch},
             'assets': {
               'large_image': await _processImageUrl(coverUrl),
               'large_text': title,
@@ -520,22 +502,17 @@ class DiscordRpcService {
     };
 
     _dispatchPresence(
-      desktopActivity: desktopActivity,
+      desktopPresence: desktopPresence,
       gatewayPayload: gatewayPayload,
     );
   }
 
   Future<void> updateMediaPresence({required UnifiedMedia media}) async {
-    if (_activeMediaId != media.id ||
-        _mediaStartTimeMs == null ||
-        _animeStartTimeMs != null) {
+    if (_activeMediaId != media.id || _mediaStartTime == null) {
       _activeMediaId = media.id;
-      _mediaStartTimeMs = DateTime.now().millisecondsSinceEpoch;
+      _mediaStartTime = DateTime.now();
     }
-    _browsingStartTimeMs = null;
-    _animeStartTimeMs = null;
-    _animeEndTimeMs = null;
-    _activeEpisodeNumber = null;
+    _browsingStartTime = null;
 
     final title = media.title.availableTitle;
     final typeStr = media.type == MediaType.MANGA ? 'Manga' : 'Anime';
@@ -544,23 +521,16 @@ class DiscordRpcService {
 
     _log.i('Updating Media presence: $title');
 
-    final desktopActivity = RPCActivity(
-      details: 'Viewing $title',
-      state: 'Inspecting $typeStr Details',
-      timestamps: RPCTimestamps(start: _mediaStartTimeMs),
-      assets: RPCAssets(
-        largeImage: coverUrl ?? _appIconUrl,
-        largeText: title,
-        smallImage: _appIconUrl,
-        smallText: 'ShonenX',
-      ),
-      buttons: [
-        RPCButton(label: 'View $typeStr', url: mediaUrl),
-        const RPCButton(
-          label: 'Get ShonenX',
-          url: 'https://github.com/roshancodespace/shonenx',
-        ),
-      ],
+    final timestamps = DiscordTimestamps.started(_mediaStartTime!);
+
+    final desktopPresence = DiscordPresence(
+      type: DiscordActivityType.playing,
+      details: title,
+      state: 'Viewing $typeStr Details',
+      timestamps: timestamps,
+      largeAsset: _asset(coverUrl, text: title),
+      smallAsset: _asset(_appIconUrl, text: 'ShonenX'),
+      statusDisplayType: DiscordStatusDisplayType.details,
     );
 
     final images = await Future.wait([
@@ -575,11 +545,11 @@ class DiscordRpcService {
         'activities': [
           {
             'application_id': applicationId,
-            'name': 'ShonenX',
+            'name': title,
             'type': 0,
-            'details': 'Viewing $title',
-            'state': 'Inspecting $typeStr Details',
-            'timestamps': {'start': _mediaStartTimeMs},
+            'details': title,
+            'state': 'Viewing $typeStr Details',
+            'timestamps': {'start': _mediaStartTime!.millisecondsSinceEpoch},
             'assets': {
               'large_image': images[0],
               'large_text': title,
@@ -601,7 +571,7 @@ class DiscordRpcService {
     };
 
     _dispatchPresence(
-      desktopActivity: desktopActivity,
+      desktopPresence: desktopPresence,
       gatewayPayload: gatewayPayload,
     );
   }
@@ -610,29 +580,24 @@ class DiscordRpcService {
     String? activity,
     String? details,
   }) async {
-    _browsingStartTimeMs ??= DateTime.now().millisecondsSinceEpoch;
+    _browsingStartTime ??= DateTime.now();
     _activeMediaId = null;
-    _activeEpisodeNumber = null;
-    _mediaStartTimeMs = null;
-    _animeStartTimeMs = null;
-    _animeEndTimeMs = null;
+    _mediaStartTime = null;
 
-    _log.i('Updating Browsing presence: ${activity ?? 'Glazing ShonenX'}');
+    final act = activity ?? 'Browsing Catalog';
+    final det = details ?? 'Exploring Anime & Manga';
 
-    final desktopActivity = RPCActivity(
-      details: activity ?? 'Glazing ShonenX',
-      state: details ?? 'Browsing Catalog',
-      timestamps: RPCTimestamps(start: _browsingStartTimeMs),
-      assets: const RPCAssets(
-        largeImage: _appIconUrl,
-        largeText: 'ShonenX - Anime & Manga Client',
-      ),
-      buttons: const [
-        RPCButton(
-          label: 'Get ShonenX',
-          url: 'https://github.com/roshancodespace/shonenx',
-        ),
-      ],
+    _log.i('Updating Browsing presence: $act');
+
+    final timestamps = DiscordTimestamps.started(_browsingStartTime!);
+
+    final desktopPresence = DiscordPresence(
+      type: DiscordActivityType.playing,
+      details: act,
+      state: det,
+      timestamps: timestamps,
+      largeAsset: _asset(_appIconUrl, text: 'ShonenX'),
+      statusDisplayType: DiscordStatusDisplayType.details,
     );
 
     final gatewayPayload = {
@@ -642,11 +607,11 @@ class DiscordRpcService {
         'activities': [
           {
             'application_id': applicationId,
-            'name': 'ShonenX',
+            'name': act,
             'type': 0,
-            'details': activity ?? 'Glazing ShonenX',
-            'state': details ?? 'Browsing Catalog',
-            'timestamps': {'start': _browsingStartTimeMs},
+            'details': act,
+            'state': det,
+            'timestamps': {'start': _browsingStartTime!.millisecondsSinceEpoch},
             'assets': {
               'large_image': await _processImageUrl(_appIconUrl),
               'large_text': 'ShonenX - Anime & Manga Client',
@@ -663,30 +628,27 @@ class DiscordRpcService {
     };
 
     _dispatchPresence(
-      desktopActivity: desktopActivity,
+      desktopPresence: desktopPresence,
       gatewayPayload: gatewayPayload,
     );
   }
 
   void resetPresenceState() {
     _lastPresencePayload = null;
-    _lastDesktopActivity = null;
+    _lastPresence = null;
     _activeMediaId = null;
-    _activeEpisodeNumber = null;
-    _mediaStartTimeMs = null;
-    _browsingStartTimeMs = null;
-    _animeStartTimeMs = null;
-    _animeEndTimeMs = null;
+    _mediaStartTime = null;
+    _browsingStartTime = null;
   }
 
   Future<void> clearPresence() async {
     _log.i('Clearing Discord presence');
     resetPresenceState();
-    if (isDesktopPlatform && _isDesktopInitialized) {
+    if (isDesktopPlatform && _discord != null && _discord!.isConnected) {
       try {
-        FlutterDiscordRPC.instance.clearActivity();
+        await _discord!.clearPresence();
       } catch (e, s) {
-        _log.e('Failed to clear desktop activity', e, s);
+        _log.e('Failed to clear desktop presence', e, s);
       }
     }
 
@@ -708,12 +670,14 @@ class DiscordRpcService {
     _log.i('Disconnecting Discord RPC...');
     _heartbeatTimer?.cancel();
     _heartbeatTimer = null;
-    if (isDesktopPlatform && _isDesktopInitialized) {
+    if (_discord != null) {
       try {
-        FlutterDiscordRPC.instance.disconnect();
+        await _discord!.dispose();
       } catch (e, s) {
         _log.e('Failed to disconnect desktop RPC', e, s);
       }
+      _discord = null;
+      _isDesktopInitialized = false;
     }
     await _gatewaySocket?.close();
     _gatewaySocket = null;

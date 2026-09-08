@@ -319,6 +319,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.1.7"
+  dart_discord_presence:
+    dependency: "direct main"
+    description:
+      name: dart_discord_presence
+      sha256: "6860826f809517d354e2af14e504e46809afde11c43ff3685c7438073d226211"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.2.0"
   dart_style:
     dependency: transitive
     description:
@@ -477,14 +485,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.4.2"
-  flutter_discord_rpc:
-    dependency: "direct main"
-    description:
-      name: flutter_discord_rpc
-      sha256: "7ee12a3ff928e85e5e0a60c7c23417a2f1f4e604e4983fc0789ff6562fb15f2b"
-      url: "https://pub.dev"
-    source: hosted
-    version: "1.1.0"
   flutter_inappwebview:
     dependency: "direct main"
     description:
@@ -670,13 +670,14 @@ packages:
     source: hosted
     version: "0.3.2"
   flutter_secure_storage_linux:
-    dependency: transitive
+    dependency: "direct overridden"
     description:
-      name: flutter_secure_storage_linux
-      sha256: "76fa9c841b3b1619fc5b5bc36efc7d158fa2356f223b6caeb1d0c80a54168546"
-      url: "https://pub.dev"
-    source: hosted
-    version: "3.0.2"
+      path: flutter_secure_storage_linux
+      ref: "feat/linux-rewrite"
+      resolved-ref: "5f33b62fe4836a616744dd83b14a744192d6b1d6"
+      url: "https://github.com/EchoEllet/flutter_secure_storage.git"
+    source: git
+    version: "3.0.1"
   flutter_secure_storage_platform_interface:
     dependency: transitive
     description:
@@ -752,6 +753,14 @@ packages:
     description: flutter
     source: sdk
     version: "0.0.0"
+  freedesktop_secret:
+    dependency: transitive
+    description:
+      name: freedesktop_secret
+      sha256: "19ffc3520c7488ec4a21530b13f87b4549a1dc16c9fb823cbaa65163706bf768"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.1.2"
   freezed_annotation:
     dependency: transitive
     description:
@@ -1047,6 +1056,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "5.1.1"
+  linux_application_id:
+    dependency: transitive
+    description:
+      name: linux_application_id
+      sha256: "325827b93fec808cadf7308cd711f064f68569e1f030d1a9623b2afabaf19012"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.0.3"
   listen:
     dependency: transitive
     description:

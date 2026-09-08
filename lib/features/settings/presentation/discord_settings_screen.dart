@@ -58,10 +58,10 @@ class DiscordSettingsScreen extends ConsumerWidget {
                     settings.copyWith(
                       idleActivity: newActivity.isNotEmpty
                           ? newActivity
-                          : 'Glazing ShonenX',
+                          : 'Browsing Catalog',
                       idleDetails: newDetails.isNotEmpty
                           ? newDetails
-                          : 'Browsing Catalog',
+                          : 'Exploring Anime & Manga',
                     ),
                   );
               Navigator.of(context).pop();
