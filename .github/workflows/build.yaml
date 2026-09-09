@@ -92,8 +92,6 @@ jobs:
         run: |
           rustup update stable
           rustup default stable
-          # Note: If you are using flutter_rust_bridge or similar, you may also need to add Android targets:
-          # rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
 
       - name: Cache Pub dependencies
         uses: actions/cache@v4
@@ -160,8 +158,7 @@ jobs:
       - name: Install system dependencies
         run: |
           pacman -Syu --noconfirm
-          # Changed 'rust' to 'rustup' to allow toolchain management
-          pacman -S --noconfirm git jq zip unzip curl xz tar clang cmake ninja pkgconf gtk3 libsecret webkit2gtk-4.1 mpv alsa-lib wpewebkit rustup
+          pacman -S --noconfirm git jq zip unzip curl xz tar clang cmake ninja pkgconf gtk3 libsecret webkit2gtk-4.1 mpv alsa-lib wpewebkit rustup file
 
       - name: Setup Rust toolchain
         run: |
@@ -238,11 +235,67 @@ jobs:
       - name: Build Linux app
         run: flutter build linux --release --dart-define-from-file=keys.json -v
         
+      - name: Build AppImage
+        shell: bash
+        run: |
+          echo "Preparing to build AppImage..."
+          
+          # Find the main executable dynamically
+          EXE_PATH=$(find build/linux/x64/release/bundle -maxdepth 1 -type f -executable ! -name "*.so" | head -n 1)
+          EXE_NAME=$(basename "$EXE_PATH")
+          echo "Detected executable: $EXE_NAME"
+
+          # Prepare AppDir standard structure
+          mkdir -p AppDir/usr/bin
+          mkdir -p AppDir/usr/share/applications
+          mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
+          
+          # Copy Flutter build output bundle to /usr/bin
+          cp -r build/linux/x64/release/bundle/* AppDir/usr/bin/
+          
+          # Create AppRun script carefully
+          cat << 'EOF' > AppDir/AppRun
+          #!/bin/sh
+          HERE="$(dirname "$(readlink -f "${0}")")"
+          export LD_LIBRARY_PATH="${HERE}/usr/lib:${HERE}/usr/bin/lib:${LD_LIBRARY_PATH}"
+          EOF
+          echo "exec \"\${HERE}/usr/bin/$EXE_NAME\" \"\$@\"" >> AppDir/AppRun
+          chmod +x AppDir/AppRun
+          
+          # Create .desktop file
+          cat << EOF > AppDir/ShonenX.desktop
+          [Desktop Entry]
+          Name=ShonenX
+          Exec=$EXE_NAME
+          Icon=shonenx
+          Type=Application
+          Categories=Utility;
+          EOF
+          
+          # Handle Application Icon (Fallback to dummy transparent 1x1 if missing to satisfy builder)
+          if [ -f "linux/application_icon.png" ]; then
+            cp linux/application_icon.png AppDir/shonenx.png
+          elif [ -n "$(find linux -name "*.png" | head -n 1)" ]; then
+            cp $(find linux -name "*.png" | head -n 1) AppDir/shonenx.png
+          else
+            echo -ne '\x89PNG\x0d\x0a\x1a\x0a\x00\x00\x00\x0dIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\x0aIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01\x0d\x0a-\xb4\x00\x00\x00\x00IEND\xaeB`\x82' > AppDir/shonenx.png
+          fi
+          
+          # Download appimagetool (we use extract flag as fuse fails inside Docker containers)
+          curl -LO https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool-x86_64.AppImage
+          ./appimagetool-x86_64.AppImage --appimage-extract
+          
+          # Package the final AppImage
+          ARCH=x86_64 ./squashfs-root/AppRun AppDir ShonenX-x86_64.AppImage
+
       - name: Upload Linux Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: linux-bundle
-          path: build/linux/x64/release/bundle
+          path: |
+            build/linux/x64/release/bundle
+            ShonenX-x86_64.AppImage
 
   build-windows:
     if: github.event.inputs.build_windows == 'true'
@@ -374,6 +427,8 @@ jobs:
         if: ${{ needs.build-linux.result == 'success' }}
         run: |
           cd artifacts
+          # Move AppImage out of the folder so it doesn't get zipped, keeping it standalone
+          mv linux/*.AppImage ./ || true
           zip -r ShonenX-linux.zip linux
 
       # ── Determine Tag ───────────────────────────────────────────────────────────
@@ -496,6 +551,7 @@ jobs:
             artifacts/**/*.msi
             artifacts/**/*.zip
             artifacts/ShonenX-linux.zip
+            artifacts/*.AppImage
 
       # ── Notify Telegram with Clean Asset Links & Formatted Changelog ───────────
       - name: Send Release Links to Telegram
@@ -547,6 +603,13 @@ jobs:
           
           if [ "${{ needs.build-linux.result }}" = "success" ]; then
             MSG="${MSG}"$'\n• <a href="'"${RELEASE_URL}/ShonenX-linux.zip"'">ShonenX-linux.zip</a>'
+            
+            # Look for the generated AppImage file in the root of artifacts folder
+            cd artifacts
+            for f in *.AppImage; do
+              [ -e "$f" ] && MSG="${MSG}"$'\n• <a href="'"${RELEASE_URL}/${f}"'">'${f}'</a>'
+            done
+            cd ..
           fi
           
           # Ship message to Telegram
