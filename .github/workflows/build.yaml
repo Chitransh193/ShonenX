@@ -88,6 +88,13 @@ jobs:
           flutter-version: 3.41.9
           cache: true
 
+      - name: Setup Rust toolchain
+        run: |
+          rustup update stable
+          rustup default stable
+          # Note: If you are using flutter_rust_bridge or similar, you may also need to add Android targets:
+          # rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
+
       - name: Cache Pub dependencies
         uses: actions/cache@v4
         with:
@@ -153,7 +160,13 @@ jobs:
       - name: Install system dependencies
         run: |
           pacman -Syu --noconfirm
-          pacman -S --noconfirm git jq zip unzip curl xz tar clang cmake ninja pkgconf gtk3 libsecret webkit2gtk-4.1 mpv alsa-lib wpewebkit rust
+          # Changed 'rust' to 'rustup' to allow toolchain management
+          pacman -S --noconfirm git jq zip unzip curl xz tar clang cmake ninja pkgconf gtk3 libsecret webkit2gtk-4.1 mpv alsa-lib wpewebkit rustup
+
+      - name: Setup Rust toolchain
+        run: |
+          rustup update stable
+          rustup default stable
 
       - name: Trust git directory
         run: git config --global --add safe.directory '*'
@@ -261,6 +274,11 @@ jobs:
         with:
           flutter-version: 3.41.9
           cache: true
+
+      - name: Setup Rust toolchain
+        run: |
+          rustup update stable
+          rustup default stable
 
       - name: Cache Pub dependencies
         uses: actions/cache@v4
