@@ -279,12 +279,18 @@ jobs:
           chmod +x appimagetool-x86_64.AppImage
           ./appimagetool-x86_64.AppImage --appimage-extract-and-run $APPDIR ShonenX-linux-x86_64.AppImage
 
+      - name: Create Linux Portable Zip
+        shell: bash
+        run: |
+          cd build/linux/x64/release/bundle
+          zip -r ../../../../../ShonenX-linux-portable.zip .
+
       - name: Upload Linux Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: linux-bundle
           path: |
-            build/linux/x64/release/bundle
+            ShonenX-linux-portable.zip
             ShonenX-linux-x86_64.AppImage
 
   build-windows:
@@ -573,15 +579,6 @@ jobs:
           name: ios-unsigned-ipa
           path: artifacts/ios
 
-      # ── Zip Linux bundle ────────────────────────────────────────────────────────
-      - name: Zip Linux bundle
-        if: ${{ needs.build-linux.result == 'success' }}
-        run: |
-          cd artifacts
-          # Move AppImage out of the folder so it doesn't get zipped, keeping it standalone
-          mv linux/*.AppImage ./ || true
-          zip -r ShonenX-linux.zip linux
-
       # ── Determine Tag ───────────────────────────────────────────────────────────
       - name: Determine Release Tag
         id: determine_tag
@@ -679,8 +676,7 @@ jobs:
             artifacts/**/*.msi
             artifacts/**/*.zip
             artifacts/**/*.ipa
-            artifacts/ShonenX-linux.zip
-            artifacts/*.AppImage
+            artifacts/**/*.AppImage
 
       # ── Notify Telegram with Clean Asset Links & Formatted Changelog ───────────
       - name: Send Release Links to Telegram
@@ -730,12 +726,11 @@ jobs:
           fi
           
           if [ "${{ needs.build-linux.result }}" = "success" ]; then
-            MSG="${MSG}"$'\n• <a href="'"${RELEASE_URL}/ShonenX-linux.zip"'">ShonenX-linux.zip</a>'
-            cd artifacts
-            for f in *.AppImage; do
+            cd artifacts/linux
+            for f in *.zip *.AppImage; do
               [ -e "$f" ] && MSG="${MSG}"$'\n• <a href="'"${RELEASE_URL}/${f}"'">'${f}'</a>'
             done
-            cd ..
+            cd ../..
           fi
           
           if [ "${{ needs.build-macos.result }}" = "success" ]; then
