@@ -364,10 +364,9 @@ jobs:
           }
 
       - name: Create Windows Portable Zip
-        shell: bash
+        shell: pwsh
         run: |
-          cd build/windows/x64/runner/Release
-          zip -r ../../../../../ShonenX-windows-portable.zip .
+          Compress-Archive -Path "build/windows/x64/runner/Release/*" -DestinationPath "ShonenX-windows-portable.zip" -Force
 
       - name: Build installer (InnoBundle)
         run: dart run inno_bundle --release --no-app
