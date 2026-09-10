@@ -20,8 +20,13 @@ on:
       build_windows:
         type: boolean
         default: true
+      build_macos:
+        type: boolean
+        default: true
+      build_ios:
+        type: boolean
+        default: true
 
-# REQUIRED: Gives GitHub Actions permission to create a Release
 permissions:
   contents: write
 
@@ -92,6 +97,7 @@ jobs:
         run: |
           rustup update stable
           rustup default stable
+          rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
 
       - name: Cache Pub dependencies
         uses: actions/cache@v4
@@ -153,7 +159,6 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: archlinux:base-devel
-
     steps:
       - name: Install system dependencies
         run: |
@@ -179,15 +184,11 @@ jobs:
         run: |
           CLEAN_VER="${{ github.event.inputs.release_tag }}"
           CLEAN_VER="${CLEAN_VER#v}"
-          
-          # Extract existing build number
           EXISTING_VER=$(grep '^version:' pubspec.yaml | awk '{print $2}')
           if [[ "$EXISTING_VER" == *"+"* ]] && [[ "$CLEAN_VER" != *"+"* ]]; then
             BUILD_NUM="+${EXISTING_VER#*+}"
             CLEAN_VER="${CLEAN_VER}${BUILD_NUM}"
           fi
-          
-          echo "Overriding pubspec.yaml version to: $CLEAN_VER"
           sed -i -e "s/^version: .*/version: $CLEAN_VER/g" pubspec.yaml
 
       - uses: subosito/flutter-action@v2
@@ -225,10 +226,8 @@ jobs:
         shell: bash
         run: |
           if [ "${{ github.event.inputs.upgrade_dependencies }}" == 'true' ]; then
-            echo "Running flutter pub upgrade..."
             flutter pub upgrade
           else
-            echo "Running flutter pub get..."
             flutter pub get
           fi
 
@@ -239,55 +238,46 @@ jobs:
         shell: bash
         run: |
           echo "Preparing to build AppImage..."
-          
-          # Find the main executable dynamically
-          EXE_PATH=$(find build/linux/x64/release/bundle -maxdepth 1 -type f -executable ! -name "*.so" | head -n 1)
+          BUNDLE_DIR="build/linux/x64/release/bundle"
+          APPDIR="AppDir"
+
+          EXE_PATH=$(find $BUNDLE_DIR -maxdepth 1 -type f -executable -not -name "*.so" | head -n 1)
           EXE_NAME=$(basename "$EXE_PATH")
           echo "Detected executable: $EXE_NAME"
 
-          # Prepare AppDir standard structure
-          mkdir -p AppDir/usr/bin
-          mkdir -p AppDir/usr/share/applications
-          mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
-          
-          # Copy Flutter build output bundle to /usr/bin
-          cp -r build/linux/x64/release/bundle/* AppDir/usr/bin/
-          
-          # Create AppRun script carefully
-          cat << 'EOF' > AppDir/AppRun
+          mkdir -p $APPDIR
+          cp -r $BUNDLE_DIR/* $APPDIR/
+
+          cat << EOF > $APPDIR/AppRun
           #!/bin/sh
-          HERE="$(dirname "$(readlink -f "${0}")")"
-          export LD_LIBRARY_PATH="${HERE}/usr/lib:${HERE}/usr/bin/lib:${LD_LIBRARY_PATH}"
+          HERE="\$(dirname "\$(readlink -f "\${0}")")"
+          export LD_LIBRARY_PATH="\${HERE}/lib:\${LD_LIBRARY_PATH}"
+          exec "\${HERE}/$EXE_NAME" "\$@"
           EOF
-          echo "exec \"\${HERE}/usr/bin/$EXE_NAME\" \"\$@\"" >> AppDir/AppRun
-          chmod +x AppDir/AppRun
-          
-          # Create .desktop file
-          cat << EOF > AppDir/ShonenX.desktop
+          chmod +x $APPDIR/AppRun
+
+          cat << EOF > $APPDIR/$EXE_NAME.desktop
           [Desktop Entry]
+          Version=1.0
           Name=ShonenX
           Exec=$EXE_NAME
-          Icon=shonenx
+          Icon=$EXE_NAME
           Type=Application
+          Terminal=false
           Categories=Utility;
           EOF
-          
-          # Handle Application Icon (Fallback to dummy transparent 1x1 if missing to satisfy builder)
+
           if [ -f "linux/application_icon.png" ]; then
-            cp linux/application_icon.png AppDir/shonenx.png
+            cp linux/application_icon.png $APPDIR/$EXE_NAME.png
           elif [ -n "$(find linux -name "*.png" | head -n 1)" ]; then
-            cp $(find linux -name "*.png" | head -n 1) AppDir/shonenx.png
+            cp $(find linux -name "*.png" | head -n 1) $APPDIR/$EXE_NAME.png
           else
-            echo -ne '\x89PNG\x0d\x0a\x1a\x0a\x00\x00\x00\x0dIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\x0aIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01\x0d\x0a-\xb4\x00\x00\x00\x00IEND\xaeB`\x82' > AppDir/shonenx.png
+            echo "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=" | base64 -d > $APPDIR/$EXE_NAME.png
           fi
-          
-          # Download appimagetool (we use extract flag as fuse fails inside Docker containers)
-          curl -LO https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+
+          curl -sLO https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x appimagetool-x86_64.AppImage
-          ./appimagetool-x86_64.AppImage --appimage-extract
-          
-          # Package the final AppImage
-          ARCH=x86_64 ./squashfs-root/AppRun AppDir ShonenX-x86_64.AppImage
+          ./appimagetool-x86_64.AppImage --appimage-extract-and-run $APPDIR ShonenX-linux-x86_64.AppImage
 
       - name: Upload Linux Artifacts
         uses: actions/upload-artifact@v4
@@ -295,7 +285,7 @@ jobs:
           name: linux-bundle
           path: |
             build/linux/x64/release/bundle
-            ShonenX-x86_64.AppImage
+            ShonenX-linux-x86_64.AppImage
 
   build-windows:
     if: github.event.inputs.build_windows == 'true'
@@ -312,15 +302,11 @@ jobs:
         run: |
           CLEAN_VER="${{ github.event.inputs.release_tag }}"
           CLEAN_VER="${CLEAN_VER#v}"
-          
-          # Extract existing build number
           EXISTING_VER=$(grep '^version:' pubspec.yaml | awk '{print $2}')
           if [[ "$EXISTING_VER" == *"+"* ]] && [[ "$CLEAN_VER" != *"+"* ]]; then
             BUILD_NUM="+${EXISTING_VER#*+}"
             CLEAN_VER="${CLEAN_VER}${BUILD_NUM}"
           fi
-          
-          echo "Overriding pubspec.yaml version to: $CLEAN_VER"
           sed -i -e "s/^version: .*/version: $CLEAN_VER/g" pubspec.yaml
 
       - uses: subosito/flutter-action@v2
@@ -364,10 +350,8 @@ jobs:
         shell: bash
         run: |
           if [ "${{ github.event.inputs.upgrade_dependencies }}" == 'true' ]; then
-            echo "Running flutter pub upgrade..."
             flutter pub upgrade
           else
-            echo "Running flutter pub get..."
             flutter pub get
           fi
 
@@ -379,6 +363,12 @@ jobs:
             flutter build windows --release --dart-define-from-file=keys.json
           }
 
+      - name: Create Windows Portable Zip
+        shell: bash
+        run: |
+          cd build/windows/x64/runner/Release
+          zip -r ../../../../../ShonenX-windows-portable.zip .
+
       - name: Build installer (InnoBundle)
         run: dart run inno_bundle --release --no-app
 
@@ -386,11 +376,159 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-installer
-          path: build/windows/x64/installer/Release
+          path: |
+            build/windows/x64/installer/Release/*.exe
+            ShonenX-windows-portable.zip
+
+  build-macos:
+    if: github.event.inputs.build_macos == 'true'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          token: ${{ secrets.SUBMODULE_PAT }}
+
+      - name: Override pubspec.yaml version
+        if: github.event.inputs.release_tag != ''
+        shell: bash
+        run: |
+          CLEAN_VER="${{ github.event.inputs.release_tag }}"
+          CLEAN_VER="${CLEAN_VER#v}"
+          EXISTING_VER=$(grep '^version:' pubspec.yaml | awk '{print $2}')
+          if [[ "$EXISTING_VER" == *"+"* ]] && [[ "$CLEAN_VER" != *"+"* ]]; then
+            BUILD_NUM="+${EXISTING_VER#*+}"
+            CLEAN_VER="${CLEAN_VER}${BUILD_NUM}"
+          fi
+          sed -i '' -e "s/^version: .*/version: $CLEAN_VER/g" pubspec.yaml
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.41.9
+          cache: true
+
+      - name: Enable macOS config
+        run: flutter config --enable-macos-desktop
+
+      - name: Create env file
+        run: |
+          cat > keys.json <<EOF
+          {
+            "ANILIST_CLIENT_ID": "${{ secrets.ANILIST_CLIENT_ID }}",
+            "ANILIST_CLIENT_SECRET": "${{ secrets.ANILIST_CLIENT_SECRET }}",
+            "MAL_CLIENT_ID": "${{ secrets.MAL_CLIENT_ID }}",
+            "MAL_CLIENT_SECRET": "${{ secrets.MAL_CLIENT_SECRET }}",
+            "SIMKL_CLIENT_ID": "${{ secrets.SIMKL_CLIENT_ID }}",
+            "SIMKL_CLIENT_SECRET": "${{ secrets.SIMKL_CLIENT_SECRET }}",
+            "COMMENTUM_API_URL": "${{ secrets.COMMENTUM_API_URL }}",
+            "RELEASE_REPO": "Chitransh193/ShonenX"
+          }
+          EOF
+
+      - name: Resolve Dependencies
+        shell: bash
+        run: |
+          if [ "${{ github.event.inputs.upgrade_dependencies }}" == 'true' ]; then
+            flutter pub upgrade
+          else
+            flutter pub get
+          fi
+
+      - name: Build macOS app
+        run: flutter build macos --release --dart-define-from-file=keys.json
+
+      - name: Zip macOS bundle
+        run: |
+          cd build/macos/Build/Products/Release
+          zip -r ../../../../../ShonenX-macOS.zip *.app
+
+      - name: Upload macOS Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-bundle
+          path: ShonenX-macOS.zip
+
+  build-ios:
+    if: github.event.inputs.build_ios == 'true'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          token: ${{ secrets.SUBMODULE_PAT }}
+
+      - name: Override pubspec.yaml version
+        if: github.event.inputs.release_tag != ''
+        shell: bash
+        run: |
+          CLEAN_VER="${{ github.event.inputs.release_tag }}"
+          CLEAN_VER="${CLEAN_VER#v}"
+          EXISTING_VER=$(grep '^version:' pubspec.yaml | awk '{print $2}')
+          if [[ "$EXISTING_VER" == *"+"* ]] && [[ "$CLEAN_VER" != *"+"* ]]; then
+            BUILD_NUM="+${EXISTING_VER#*+}"
+            CLEAN_VER="${CLEAN_VER}${BUILD_NUM}"
+          fi
+          sed -i '' -e "s/^version: .*/version: $CLEAN_VER/g" pubspec.yaml
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios, aarch64-apple-ios-sim
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.41.9
+          cache: true
+
+      - name: Create env file
+        run: |
+          cat > keys.json <<EOF
+          {
+            "ANILIST_CLIENT_ID": "${{ secrets.ANILIST_CLIENT_ID }}",
+            "ANILIST_CLIENT_SECRET": "${{ secrets.ANILIST_CLIENT_SECRET }}",
+            "MAL_CLIENT_ID": "${{ secrets.MAL_CLIENT_ID }}",
+            "MAL_CLIENT_SECRET": "${{ secrets.MAL_CLIENT_SECRET }}",
+            "SIMKL_CLIENT_ID": "${{ secrets.SIMKL_CLIENT_ID }}",
+            "SIMKL_CLIENT_SECRET": "${{ secrets.SIMKL_CLIENT_SECRET }}",
+            "COMMENTUM_API_URL": "${{ secrets.COMMENTUM_API_URL }}",
+            "RELEASE_REPO": "Chitransh193/ShonenX"
+          }
+          EOF
+
+      - name: Resolve Dependencies
+        shell: bash
+        run: |
+          if [ "${{ github.event.inputs.upgrade_dependencies }}" == 'true' ]; then
+            flutter pub upgrade
+          else
+            flutter pub get
+          fi
+
+      - name: Build iOS app (Unsigned)
+        run: flutter build ios --release --no-codesign --dart-define-from-file=keys.json
+
+      - name: Package iOS IPA
+        run: |
+          cd build/ios/iphoneos
+          mkdir Payload
+          # Uses *.app to prevent packaging from failing if the bundle isn't named strictly "Runner.app"
+          mv *.app Payload/
+          zip -qq -r ../../../ShonenX-iOS-Unsigned.ipa Payload
+
+      - name: Upload iOS Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-unsigned-ipa
+          path: ShonenX-iOS-Unsigned.ipa
 
   release_and_upload:
     if: always()
-    needs: [start_building, build-android, build-linux, build-windows]
+    needs: [start_building, build-android, build-linux, build-windows, build-macos, build-ios]
     runs-on: ubuntu-latest
     env:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -421,6 +559,20 @@ jobs:
         with:
           name: windows-installer
           path: artifacts/windows
+          
+      - name: Download macOS artifacts
+        if: ${{ needs.build-macos.result == 'success' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-bundle
+          path: artifacts/macos
+          
+      - name: Download iOS artifacts
+        if: ${{ needs.build-ios.result == 'success' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: ios-unsigned-ipa
+          path: artifacts/ios
 
       # ── Zip Linux bundle ────────────────────────────────────────────────────────
       - name: Zip Linux bundle
@@ -465,20 +617,13 @@ jobs:
             PREV_TAG=$(git tag --sort=-v:refname | head -n 1)
           fi
 
-          echo "Previous Tag resolved to: $PREV_TAG"
-
           if [ -n "$PREV_TAG" ]; then
-            echo "Comparing $PREV_TAG..HEAD"
             COMMITS=$(git log "${PREV_TAG}..HEAD" --pretty=format:"- %s (%h)")
             COMPARE_LINK="https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${CURRENT_TAG}"
           else
-            echo "No previous tag found, getting recent commits"
             COMMITS=$(git log --pretty=format:"- %s (%h)" -n 30)
             COMPARE_LINK=""
           fi
-
-          echo "Commits to format:"
-          echo "$COMMITS"
 
           NOTES=""
           if [ -n "$GEMINI_API_KEY" ]; then
@@ -506,37 +651,21 @@ jobs:
             }
 
             for MODEL in "gemini-2.5-flash" "gemini-3.5-flash" "gemini-2.5-pro" "gemini-1.5-flash"; do
-              echo "Trying Gemini model: $MODEL..."
               RESPONSE=$(call_gemini "$MODEL")
               NOTES=$(echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // empty')
-              if [ -n "$NOTES" ]; then
-                echo "Successfully generated release notes using $MODEL"
-                break
-              else
-                echo "Model $MODEL failed or returned empty. Response: $RESPONSE"
-              fi
+              if [ -n "$NOTES" ]; then break; fi
             done
-          else
-            echo "GEMINI_API_KEY secret is not set. Falling back to default commit list."
           fi
 
           if [ -z "$NOTES" ]; then
-            echo "Using fallback commit list for release notes."
-            NOTES="## What's Changed
-
-          $COMMITS"
+            NOTES="## What's Changed\n\n$COMMITS"
           fi
 
           if [ -n "$COMPARE_LINK" ]; then
-            NOTES="$NOTES
-
-          ---
-          **Full Changelog**: $COMPARE_LINK"
+            NOTES="$NOTES\n\n---\n**Full Changelog**: $COMPARE_LINK"
           fi
 
-          echo "$NOTES" > release_notes.md
-          echo "Generated release_notes.md:"
-          cat release_notes.md
+          echo -e "$NOTES" > release_notes.md
 
       # ── Create or Update GitHub Release ─────────────────────────────────────────
       - name: Create or Update GitHub Release
@@ -550,6 +679,7 @@ jobs:
             artifacts/**/*.exe
             artifacts/**/*.msi
             artifacts/**/*.zip
+            artifacts/**/*.ipa
             artifacts/ShonenX-linux.zip
             artifacts/*.AppImage
 
@@ -584,7 +714,6 @@ jobs:
           EOF
           )
           
-          # Programmatically look for generated assets and add formatted HTML links
           if [ "${{ needs.build-android.result }}" = "success" ]; then
             cd artifacts/android
             for f in *.apk; do
@@ -595,7 +724,7 @@ jobs:
           
           if [ "${{ needs.build-windows.result }}" = "success" ]; then
             cd artifacts/windows
-            for f in *.exe *.msi; do
+            for f in *.exe *.msi *.zip; do
               [ -e "$f" ] && MSG="${MSG}"$'\n• <a href="'"${RELEASE_URL}/${f}"'">'${f}'</a>'
             done
             cd ../..
@@ -603,13 +732,27 @@ jobs:
           
           if [ "${{ needs.build-linux.result }}" = "success" ]; then
             MSG="${MSG}"$'\n• <a href="'"${RELEASE_URL}/ShonenX-linux.zip"'">ShonenX-linux.zip</a>'
-            
-            # Look for the generated AppImage file in the root of artifacts folder
             cd artifacts
             for f in *.AppImage; do
               [ -e "$f" ] && MSG="${MSG}"$'\n• <a href="'"${RELEASE_URL}/${f}"'">'${f}'</a>'
             done
             cd ..
+          fi
+          
+          if [ "${{ needs.build-macos.result }}" = "success" ]; then
+            cd artifacts/macos
+            for f in *.zip; do
+              [ -e "$f" ] && MSG="${MSG}"$'\n• <a href="'"${RELEASE_URL}/${f}"'">'${f}'</a>'
+            done
+            cd ../..
+          fi
+          
+          if [ "${{ needs.build-ios.result }}" = "success" ]; then
+            cd artifacts/ios
+            for f in *.ipa; do
+              [ -e "$f" ] && MSG="${MSG}"$'\n• <a href="'"${RELEASE_URL}/${f}"'">'${f}'</a>'
+            done
+            cd ../..
           fi
           
           # Ship message to Telegram
