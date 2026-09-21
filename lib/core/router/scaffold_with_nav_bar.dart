@@ -11,8 +11,8 @@ import 'package:shonenx/core/router/nav_bar_theme.dart';
 import 'package:shonenx/shared/providers/ui_prefs_provider.dart';
 import 'package:shonenx/core/remote_config/providers/remote_config_provider.dart';
 import 'package:shonenx/core/remote_config/ui/remote_config_ui.dart';
-import 'package:shonenx/core/updates/services/update_service.dart';
-import 'package:shonenx/core/updates/ui/update_ui.dart';
+import 'package:shonenx/features/updates/services/update_service.dart';
+import 'package:shonenx/features/updates/ui/update_ui.dart';
 import 'package:shonenx/core/router/app_router.dart';
 import 'package:shonenx/core/utils/responsive.dart';
 import 'package:shonenx/features/downloads/domain/models/download_task.dart';
@@ -341,7 +341,6 @@ class _BottomNavBar extends ConsumerWidget {
     );
 
     final isDocked = navBarStyle == NavBarStyle.docked;
-    final isBubble = navBarStyle == NavBarStyle.bubble;
 
     final bottomMargin = isDocked ? 0.0 : r.height * 0.018;
 
@@ -376,15 +375,17 @@ class _BottomNavBar extends ConsumerWidget {
           uiScale;
       final iconSize = (r.isPhone ? 25.0 : 28.0) * uiScale;
       final fontSize = r.isPhone ? 14.5 : 16.0;
-      final hPad = isBubble ? 12.0 : (r.isPhone ? 6.0 : 10.5) * uiScale;
+      final hPad = (r.isPhone ? 6.0 : 10.5) * uiScale;
+
+      final vPad = hPad;
 
       final themeData = NavBarThemeData.resolve(navBarStyle, cs, false, false);
       final barRadius = themeData.barRadius(barHeight);
-      final activeItemRadius = themeData.itemRadius(barHeight - 2 * hPad);
+      final activeItemRadius = themeData.itemRadius(barHeight - 2 * vPad);
 
       final contentWidget = Container(
         height: barHeight,
-        padding: EdgeInsets.all(hPad),
+        padding: EdgeInsets.symmetric(horizontal: hPad, vertical: vPad),
         decoration: themeData.barDecoration.copyWith(
           borderRadius: BorderRadius.circular(barRadius),
         ),
@@ -556,13 +557,6 @@ class _BottomNavBar extends ConsumerWidget {
           ),
         );
 
-        if (navBarStyle == NavBarStyle.bubble) {
-          item = Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4.0),
-            child: item,
-          );
-        }
-
         return item;
       }),
     );
@@ -611,95 +605,126 @@ class _DownloadButton extends ConsumerWidget {
     }
 
     final themeData = NavBarThemeData.resolve(navBarStyle, cs, false, active);
-    final buttonRadius = themeData.barRadius(size);
+    final barRadius = themeData.barRadius(size);
+    final activeItemRadius = themeData.itemRadius(size - 2 * padding);
 
-    final content = AnimatedContainer(
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.easeOutCubic,
-      width: size,
-      height: size,
-      decoration: themeData.downloadButtonDecoration,
-      child: IconButton(
-        padding: EdgeInsets.zero,
-        icon: Badge(
-          isLabelVisible: hasActive,
-          backgroundColor: cs.primary,
-          textColor: cs.onPrimary,
-          label: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 200),
-            child: Text('$count', key: ValueKey(count)),
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Stack(
-                alignment: Alignment.center,
-                children: [
-                  AnimatedOpacity(
-                    opacity: hasActive ? 1.0 : 0.0,
-                    duration: const Duration(milliseconds: 300),
-                    child: SizedBox(
-                      width: iconSize + 8,
-                      height: iconSize + 8,
-                      child: CircularProgressIndicator(
-                        value: progress,
-                        strokeWidth: 2.5,
-                        color:
-                            active &&
-                                themeData.isMaterial3 == false &&
-                                !themeData.showDotIndicator &&
-                                navBarStyle != NavBarStyle.frosted
-                            ? cs.onPrimary
-                            : cs.primary,
+    Widget item = InkWell(
+      onTap: () => navigationShell.goBranch(
+        3,
+        initialLocation: 3 == navigationShell.currentIndex,
+      ),
+      borderRadius: BorderRadius.circular(activeItemRadius),
+      focusColor: cs.primary.withValues(alpha: 0.2),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOutCubic,
+        height: double.maxFinite,
+        padding: EdgeInsets.symmetric(horizontal: active ? 18 : 14),
+        decoration:
+            (active
+                    ? themeData.activeItemDecoration
+                    : themeData.inactiveItemDecoration)
+                .copyWith(
+                  borderRadius: BorderRadius.circular(activeItemRadius),
+                ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Badge(
+                  isLabelVisible: hasActive,
+                  backgroundColor: cs.primary,
+                  textColor: cs.onPrimary,
+                  label: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 200),
+                    child: Text('$count', key: ValueKey(count)),
+                  ),
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      AnimatedOpacity(
+                        opacity: hasActive ? 1.0 : 0.0,
+                        duration: const Duration(milliseconds: 300),
+                        child: SizedBox(
+                          width: iconSize + 8,
+                          height: iconSize + 8,
+                          child: CircularProgressIndicator(
+                            value: progress,
+                            strokeWidth: 2.5,
+                            color:
+                                active &&
+                                    themeData.isMaterial3 == false &&
+                                    !themeData.showDotIndicator &&
+                                    navBarStyle != NavBarStyle.frosted
+                                ? cs.onPrimary
+                                : cs.primary,
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
-                  AnimatedScale(
-                    scale: hasActive
-                        ? 1.1
-                        : (active ? themeData.activeScale : 1.0),
-                    duration: const Duration(milliseconds: 350),
-                    curve: Curves.easeOutBack,
-                    child: Icon(
-                      Icons.download_outlined,
-                      color: themeData.downloadIconColor,
-                      size: iconSize,
-                    ),
-                  ),
-                ],
-              ),
-              if (themeData.showDotIndicator && active) ...[
-                const SizedBox(height: 3),
-                Container(
-                  width: 5,
-                  height: 5,
-                  decoration: BoxDecoration(
-                    color: themeData.downloadIconColor,
-                    shape: BoxShape.circle,
+                      AnimatedScale(
+                        scale: active ? themeData.activeScale : 1.0,
+                        duration: const Duration(milliseconds: 300),
+                        curve: Curves.easeOutBack,
+                        child: AnimatedOpacity(
+                          opacity: active ? 1.0 : 0.55,
+                          duration: const Duration(milliseconds: 250),
+                          child: Icon(
+                            Icons.download_outlined,
+                            color: active
+                                ? themeData.activeIconColor
+                                : themeData.inactiveIconColor,
+                            size: iconSize,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
+            ),
+            if (themeData.showDotIndicator && active) ...[
+              const SizedBox(height: 3),
+              Container(
+                width: 5,
+                height: 5,
+                decoration: BoxDecoration(
+                  color: themeData.activeIconColor,
+                  shape: BoxShape.circle,
+                ),
+              ),
             ],
-          ),
-        ),
-        onPressed: () => navigationShell.goBranch(
-          3,
-          initialLocation: 3 == navigationShell.currentIndex,
+          ],
         ),
       ),
     );
 
+    final contentWidget = Container(
+      height: size,
+      padding: EdgeInsets.symmetric(horizontal: padding, vertical: padding),
+      decoration: themeData.barDecoration.copyWith(
+        borderRadius: BorderRadius.circular(barRadius),
+      ),
+      child: item,
+    );
+
+    if (themeData.blurSigma != null) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(barRadius),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(
+            sigmaX: themeData.blurSigma!,
+            sigmaY: themeData.blurSigma!,
+          ),
+          child: contentWidget,
+        ),
+      );
+    }
+
     return ClipRRect(
-      borderRadius: BorderRadius.circular(buttonRadius),
-      child: themeData.blurSigma != null
-          ? BackdropFilter(
-              filter: ImageFilter.blur(
-                sigmaX: themeData.blurSigma!,
-                sigmaY: themeData.blurSigma!,
-              ),
-              child: content,
-            )
-          : content,
+      borderRadius: BorderRadius.circular(barRadius),
+      child: contentWidget,
     );
   }
 }
@@ -717,7 +742,6 @@ class _SideNavBar extends ConsumerWidget {
     final navBarStyle = uiPrefs.navBarStyle;
 
     final isDocked = navBarStyle == NavBarStyle.docked;
-    final isBubble = navBarStyle == NavBarStyle.bubble;
 
     if (isDocked) {
       return SafeArea(
@@ -806,15 +830,13 @@ class _SideNavBar extends ConsumerWidget {
     );
     final hPad = isDocked
         ? 0.0
-        : (isBubble
-              ? 12.0
-              : h.pick(
-                  spacious: 12.0,
-                  normal: 10.0,
-                  compact: 8.0,
-                  tight: 6.0,
-                  cramped: 4.0,
-                ));
+        : h.pick(
+            spacious: 12.0,
+            normal: 10.0,
+            compact: 8.0,
+            tight: 6.0,
+            cramped: 4.0,
+          );
     final vOuterPad = isDocked
         ? 0.0
         : h.pick(

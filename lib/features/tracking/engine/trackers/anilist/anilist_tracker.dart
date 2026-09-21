@@ -1,5 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shonenx/features/auth/providers/auth_provider.dart';
+import 'package:shonenx/features/tracking/providers/tracker_auth_provider.dart';
 import 'package:shonenx/features/tracking/engine/remote_tracker.dart';
 import 'package:shonenx/core/network/http_client.dart';
 import 'package:shonenx/features/library/domain/models/library_entry.dart';
@@ -359,7 +359,7 @@ class AnilistTracker extends BaseTracker
               ..format = media['format']?.toString() ?? ''
               ..cover = media['coverImage']?['large'] ?? ''
               ..banner = media['bannerImage']?.toString()
-              ..description = media['description']?.toString()
+              ..description = cleanBio(media['description']?.toString())
               ..genres = genres
               ..year = media['seasonYear'] as int?
               ..status = _parseAnilistStatus(media['status']).id

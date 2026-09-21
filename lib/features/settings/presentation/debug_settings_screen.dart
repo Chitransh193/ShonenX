@@ -2,15 +2,16 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:shonenx/core/router/app_navigator.dart';
 import 'package:shonenx/core/services/notification_service.dart';
-import 'package:shonenx/core/updates/models/github_release.dart';
-import 'package:shonenx/core/updates/ui/android_update_widget.dart';
-import 'package:shonenx/core/updates/ui/linux_update_widget.dart';
-import 'package:shonenx/core/updates/ui/update_ui.dart';
-import 'package:shonenx/core/updates/ui/windows_update_widget.dart';
+import 'package:shonenx/features/updates/models/github_release.dart';
+import 'package:shonenx/features/updates/ui/android_update_widget.dart';
+import 'package:shonenx/features/updates/ui/linux_update_widget.dart';
+import 'package:shonenx/features/updates/ui/update_ui.dart';
+import 'package:shonenx/features/updates/ui/windows_update_widget.dart';
 import 'package:shonenx/features/discord/presentation/discord_login_page.dart';
-import 'package:shonenx/features/onboarding/providers/onboarding_provider.dart';
+import 'package:shonenx/features/onboarding/onboarding_provider.dart';
 import 'package:shonenx/features/settings/presentation/widgets/settings_ui_components.dart';
 import 'package:shonenx/shared/widgets/app_scaffold.dart';
 
@@ -41,6 +42,20 @@ class DebugSettingsScreen extends ConsumerWidget {
                       ),
                     );
                   });
+                },
+              ),
+            ],
+          ),
+
+          SettingsSection(
+            title: 'Media Player Debug',
+            children: [
+              SettingsActionTile(
+                icon: Icons.subtitles_outlined,
+                title: 'Subtitle Renderer',
+                subtitle: 'Stress-test subtitle parser and active cue overlay',
+                onTap: () {
+                  context.push('/settings/debug/subtitles');
                 },
               ),
             ],
