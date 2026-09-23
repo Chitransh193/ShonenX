@@ -232,21 +232,21 @@ class NavBarThemeData {
     bool isDownloadActive,
   ) {
     return NavBarThemeData(
-      blurSigma: null, // Zero blur
-      barRadius: (size) => size / 2,
-      itemRadius: (size) => size / 2, // Standard pill
-      barDecoration: BoxDecoration(color: cs.surfaceContainerLow),
-      activeIconColor: cs.onSecondaryContainer,
+      blurSigma: null,
+      barRadius: (size) => 100.0,
+      itemRadius: (size) => 100.0,
+      barDecoration: BoxDecoration(color: cs.surfaceContainerHigh),
+      activeIconColor: cs.onPrimaryContainer,
       inactiveIconColor: cs.onSurfaceVariant,
-      activeTextColor: cs.onSecondaryContainer,
-      activeItemDecoration: BoxDecoration(color: cs.secondaryContainer),
+      activeTextColor: cs.onPrimaryContainer,
+      activeItemDecoration: BoxDecoration(color: cs.primaryContainer),
       inactiveItemDecoration: const BoxDecoration(color: Colors.transparent),
       isMaterial3: true,
       activeScale: 1.0, // No bounce
       downloadButtonDecoration: BoxDecoration(
         color: isDownloadActive
             ? cs.secondaryContainer
-            : cs.surfaceContainerLow,
+            : cs.surfaceContainerHigh,
       ),
       downloadIconColor: isDownloadActive
           ? cs.onSecondaryContainer
