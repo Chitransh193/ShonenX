@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:media_kit/media_kit.dart';
@@ -33,7 +32,10 @@ class MediaKitEngine implements VideoEngine {
   StreamSubscription<Duration>? _positionSubscription;
 
   Future<void> updatePrefs(MediaKitPrefs newPrefs) async {
-    _log.d('Updating preferences');
+    final changes = prefs.diff(newPrefs);
+    if (changes.isNotEmpty) {
+      _log.d('Updating preferences: ${changes.join(', ')}');
+    }
     if (_disposed) return;
 
     final requiresReinit =
@@ -67,6 +69,11 @@ class MediaKitEngine implements VideoEngine {
     await setPropSafe('audio-channels', prefs.audioChannel.value);
     await setPropSafe('volume-max', '200');
 
+    await setPropSafe('cache', 'yes');
+    await setPropSafe('cache-secs', prefs.maxBuffer.inSeconds.toString());
+    await setPropSafe('demuxer-max-bytes', '134217728'); // 128MB
+    await setPropSafe('demuxer-max-back-bytes', '67108864'); // 64MB
+
     try {
       await _player.setVolume(prefs.boostVolume ? 140 : 100);
     } catch (_) {}
@@ -77,11 +84,11 @@ class MediaKitEngine implements VideoEngine {
       await setPropSafe('af', '');
     }
 
-    await setPropSafe('brightness', prefs.colorPreset.brightness.toString());
-    await setPropSafe('contrast', prefs.colorPreset.contrast.toString());
-    await setPropSafe('saturation', prefs.colorPreset.saturation.toString());
-    await setPropSafe('gamma', prefs.colorPreset.gamma.toString());
-    await setPropSafe('hue', prefs.colorPreset.hue.toString());
+    await setPropSafe('brightness', prefs.brightness.toString());
+    await setPropSafe('contrast', prefs.contrast.toString());
+    await setPropSafe('saturation', prefs.saturation.toString());
+    await setPropSafe('gamma', prefs.gamma.toString());
+    await setPropSafe('hue', prefs.hue.toString());
 
     if (prefs.rawConfiguration.isNotEmpty) {
       for (final line in prefs.rawConfiguration.split('\n')) {
@@ -116,7 +123,12 @@ class MediaKitEngine implements VideoEngine {
 
     await _player.dispose();
 
-    _player = Player(configuration: const PlayerConfiguration(libass: true));
+    _player = Player(
+      configuration: PlayerConfiguration(
+        libass: prefs.libassEnabled,
+        bufferSize: 64 * 1024 * 1024, // 64MB
+      ),
+    );
     _controller = VideoController(
       _player,
       configuration: VideoControllerConfiguration(
@@ -143,7 +155,12 @@ class MediaKitEngine implements VideoEngine {
   }
 
   MediaKitEngine(this.prefs, this.ref) {
-    _player = Player(configuration: const PlayerConfiguration(libass: true));
+    _player = Player(
+      configuration: PlayerConfiguration(
+        libass: prefs.libassEnabled,
+        bufferSize: 64 * 1024 * 1024, // 64MB
+      ),
+    );
     _controller = VideoController(
       _player,
       configuration: VideoControllerConfiguration(
@@ -261,15 +278,15 @@ class MediaKitEngine implements VideoEngine {
 
   @override
   Future<void> initialize(
-    stream.VideoStream stream, {
+    stream.VideoStream videoStream, {
     stream.SubtitleTrack? subtitle,
     Duration? startAt,
   }) async {
-    _currentStream = stream;
+    _currentStream = videoStream;
     _currentSubtitle = subtitle;
 
-    _log.i('Initializing player with URL: ${stream.url}');
-    final media = Media(stream.url, httpHeaders: stream.headers);
+    _log.i('Initializing player with URL: ${videoStream.url}');
+    final media = Media(videoStream.url, httpHeaders: videoStream.headers);
 
     await _player.open(media, play: true);
 
@@ -295,6 +312,8 @@ class MediaKitEngine implements VideoEngine {
           subtitlePrefs.fontSize,
         );
 
+        final bool shouldShowFlutterSubtitle = !prefs.libassEnabled;
+
         return ValueListenableBuilder<int>(
           valueListenable: _playerVersion,
           builder: (context, version, _) {
@@ -302,14 +321,19 @@ class MediaKitEngine implements VideoEngine {
               controller: _controller,
               controls: NoVideoControls,
               fit: fit,
-              subtitleViewConfiguration: SubtitleViewConfiguration(
-                padding: EdgeInsets.only(bottom: subtitlePrefs.bottomPadding),
-                style: getSubtitleStrokeStyleInShadowForm(
-                  subtitlePrefs,
-                  responsiveFontSize,
-                ),
-                textScaler: TextScaler.linear(subtitlePrefs.fontSize / 1.2),
-              ),
+              subtitleViewConfiguration: shouldShowFlutterSubtitle
+                  ? SubtitleViewConfiguration(
+                      padding: EdgeInsets.only(
+                        bottom: subtitlePrefs.bottomPadding,
+                      ),
+                      style: getSubtitleStrokeStyleInShadowForm(
+                        subtitlePrefs,
+                        responsiveFontSize,
+                      ),
+                    )
+                  : const SubtitleViewConfiguration(
+                      style: TextStyle(color: Colors.transparent),
+                    ),
             );
           },
         );
@@ -318,7 +342,7 @@ class MediaKitEngine implements VideoEngine {
   }
 
   @override
-  Widget? buildSettingsView(BuildContext context) => MediaKitSettings();
+  Widget? buildSettingsView(BuildContext context) => MediaKitAdvancedSettings();
 
   @override
   Future<void> play() => _player.play();
@@ -349,6 +373,8 @@ class MediaKitEngine implements VideoEngine {
 
   @override
   Future<void> setSubtitle(stream.SubtitleTrack? subtitle) async {
+    _currentSubtitle = subtitle;
+
     if (subtitle == null || subtitle.url.isEmpty) {
       _log.d('Disabling subtitle');
       await _player.setSubtitleTrack(SubtitleTrack.no());
