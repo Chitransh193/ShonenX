@@ -8,20 +8,19 @@ import 'package:shonenx/source_engine/inbuilt_sources/anime/hianime.dart';
 import 'package:shonenx/source_engine/inbuilt_sources/anime/special.dart';
 import 'package:shonenx/source_engine/providers/anime_source.dart';
 import 'package:shonenx/source_engine/providers/manga_source.dart';
+import 'package:shonenx/source_engine/inbuilt_sources/anime/animegg.dart';
 
-final _inbuiltAnimeListProvider = Provider<List<AnimeSource>>((ref) {
+final inbuiltAnimeSourcesProvider = Provider<List<AnimeSource>>((ref) {
   final client = ref.watch(httpClientProvider);
   final storage = ref.watch(sharedPreferencesProvider);
-  return [
+  final remoteConfig = ref.watch(remoteConfigServiceProvider);
+
+  final inbuilt = [
     AnikotoSource(client: client, storage: storage),
     SpecialSource(client: client),
     HiAnimeSource(client: client),
+    AnimeGG(client: client, storage: storage),
   ];
-});
-
-final inbuiltAnimeSourcesProvider = Provider<List<AnimeSource>>((ref) {
-  final inbuilt = ref.watch(_inbuiltAnimeListProvider);
-  final remoteConfig = ref.watch(remoteConfigServiceProvider);
 
   return inbuilt
       .where((s) => !remoteConfig.isSourceDisabled(s.sourceInfo.id))
