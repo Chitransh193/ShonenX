@@ -4,6 +4,7 @@ import 'package:shonenx/core/network/http_client.dart';
 import 'package:shonenx/shared/providers/storage_provider.dart';
 import 'package:shonenx/core/remote_config/providers/remote_config_provider.dart';
 import 'package:shonenx/source_engine/inbuilt_sources/anime/anikoto.dart';
+import 'package:shonenx/source_engine/inbuilt_sources/anime/animepahe.dart';
 import 'package:shonenx/source_engine/inbuilt_sources/anime/hianime.dart';
 import 'package:shonenx/source_engine/inbuilt_sources/anime/special.dart';
 import 'package:shonenx/source_engine/providers/anime_source.dart';
@@ -19,6 +20,7 @@ final inbuiltAnimeSourcesProvider = Provider<List<AnimeSource>>((ref) {
     AnikotoSource(client: client, storage: storage),
     SpecialSource(client: client),
     HiAnimeSource(client: client),
+    AnimePaheSource(client: client, storage: storage),
     AnimeGG(client: client, storage: storage),
   ];
 
