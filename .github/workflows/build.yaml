@@ -1,6 +1,6 @@
 name: Build ShonenX
 
-on:
+on: 
   workflow_dispatch:
     inputs:
       release_tag:
