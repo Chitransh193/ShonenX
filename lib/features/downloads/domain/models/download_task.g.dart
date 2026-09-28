@@ -51,9 +51,9 @@ const DownloadTaskSchema = CollectionSchema(
       name: r'progress',
       type: IsarType.double,
     ),
-    r'requiresHlsServer': PropertySchema(
+    r'requiresProxy': PropertySchema(
       id: 8,
-      name: r'requiresHlsServer',
+      name: r'requiresProxy',
       type: IsarType.bool,
     ),
     r'savePath': PropertySchema(
@@ -67,17 +67,24 @@ const DownloadTaskSchema = CollectionSchema(
       type: IsarType.byte,
       enumMap: _DownloadTaskstatusEnumValueMap,
     ),
-    r'totalBytes': PropertySchema(
+    r'subtitles': PropertySchema(
       id: 11,
+      name: r'subtitles',
+      type: IsarType.objectList,
+
+      target: r'DownloadSubtitle',
+    ),
+    r'totalBytes': PropertySchema(
+      id: 12,
       name: r'totalBytes',
       type: IsarType.long,
     ),
     r'updatedAt': PropertySchema(
-      id: 12,
+      id: 13,
       name: r'updatedAt',
       type: IsarType.dateTime,
     ),
-    r'url': PropertySchema(id: 13, name: r'url', type: IsarType.string),
+    r'url': PropertySchema(id: 14, name: r'url', type: IsarType.string),
   },
 
   estimateSize: _downloadTaskEstimateSize,
@@ -101,7 +108,10 @@ const DownloadTaskSchema = CollectionSchema(
     ),
   },
   links: {},
-  embeddedSchemas: {r'DownloadHeader': DownloadHeaderSchema},
+  embeddedSchemas: {
+    r'DownloadHeader': DownloadHeaderSchema,
+    r'DownloadSubtitle': DownloadSubtitleSchema,
+  },
 
   getId: _downloadTaskGetId,
   getLinks: _downloadTaskGetLinks,
@@ -130,6 +140,18 @@ int _downloadTaskEstimateSize(
   }
   bytesCount += 3 + object.mediaId.length * 3;
   bytesCount += 3 + object.savePath.length * 3;
+  bytesCount += 3 + object.subtitles.length * 3;
+  {
+    final offsets = allOffsets[DownloadSubtitle]!;
+    for (var i = 0; i < object.subtitles.length; i++) {
+      final value = object.subtitles[i];
+      bytesCount += DownloadSubtitleSchema.estimateSize(
+        value,
+        offsets,
+        allOffsets,
+      );
+    }
+  }
   bytesCount += 3 + object.url.length * 3;
   return bytesCount;
 }
@@ -153,12 +175,18 @@ void _downloadTaskSerialize(
   writer.writeBool(offsets[5], object.isM3u8);
   writer.writeString(offsets[6], object.mediaId);
   writer.writeDouble(offsets[7], object.progress);
-  writer.writeBool(offsets[8], object.requiresHlsServer);
+  writer.writeBool(offsets[8], object.requiresProxy);
   writer.writeString(offsets[9], object.savePath);
   writer.writeByte(offsets[10], object.status.index);
-  writer.writeLong(offsets[11], object.totalBytes);
-  writer.writeDateTime(offsets[12], object.updatedAt);
-  writer.writeString(offsets[13], object.url);
+  writer.writeObjectList<DownloadSubtitle>(
+    offsets[11],
+    allOffsets,
+    DownloadSubtitleSchema.serialize,
+    object.subtitles,
+  );
+  writer.writeLong(offsets[12], object.totalBytes);
+  writer.writeDateTime(offsets[13], object.updatedAt);
+  writer.writeString(offsets[14], object.url);
 }
 
 DownloadTask _downloadTaskDeserialize(
@@ -184,14 +212,22 @@ DownloadTask _downloadTaskDeserialize(
   object.isM3u8 = reader.readBool(offsets[5]);
   object.mediaId = reader.readString(offsets[6]);
   object.progress = reader.readDouble(offsets[7]);
-  object.requiresHlsServer = reader.readBool(offsets[8]);
+  object.requiresProxy = reader.readBool(offsets[8]);
   object.savePath = reader.readString(offsets[9]);
   object.status =
       _DownloadTaskstatusValueEnumMap[reader.readByteOrNull(offsets[10])] ??
       DownloadStatus.pending;
-  object.totalBytes = reader.readLong(offsets[11]);
-  object.updatedAt = reader.readDateTime(offsets[12]);
-  object.url = reader.readString(offsets[13]);
+  object.subtitles =
+      reader.readObjectList<DownloadSubtitle>(
+        offsets[11],
+        DownloadSubtitleSchema.deserialize,
+        allOffsets,
+        DownloadSubtitle(),
+      ) ??
+      [];
+  object.totalBytes = reader.readLong(offsets[12]);
+  object.updatedAt = reader.readDateTime(offsets[13]);
+  object.url = reader.readString(offsets[14]);
   return object;
 }
 
@@ -234,10 +270,19 @@ P _downloadTaskDeserializeProp<P>(
               DownloadStatus.pending)
           as P;
     case 11:
-      return (reader.readLong(offset)) as P;
+      return (reader.readObjectList<DownloadSubtitle>(
+                offset,
+                DownloadSubtitleSchema.deserialize,
+                allOffsets,
+                DownloadSubtitle(),
+              ) ??
+              [])
+          as P;
     case 12:
-      return (reader.readDateTime(offset)) as P;
+      return (reader.readLong(offset)) as P;
     case 13:
+      return (reader.readDateTime(offset)) as P;
+    case 14:
       return (reader.readString(offset)) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
@@ -1137,10 +1182,10 @@ extension DownloadTaskQueryFilter
   }
 
   QueryBuilder<DownloadTask, DownloadTask, QAfterFilterCondition>
-  requiresHlsServerEqualTo(bool value) {
+  requiresProxyEqualTo(bool value) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'requiresHlsServer', value: value),
+        FilterCondition.equalTo(property: r'requiresProxy', value: value),
       );
     });
   }
@@ -1337,6 +1382,59 @@ extension DownloadTaskQueryFilter
           upper: upper,
           includeUpper: includeUpper,
         ),
+      );
+    });
+  }
+
+  QueryBuilder<DownloadTask, DownloadTask, QAfterFilterCondition>
+  subtitlesLengthEqualTo(int length) {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(r'subtitles', length, true, length, true);
+    });
+  }
+
+  QueryBuilder<DownloadTask, DownloadTask, QAfterFilterCondition>
+  subtitlesIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(r'subtitles', 0, true, 0, true);
+    });
+  }
+
+  QueryBuilder<DownloadTask, DownloadTask, QAfterFilterCondition>
+  subtitlesIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(r'subtitles', 0, false, 999999, true);
+    });
+  }
+
+  QueryBuilder<DownloadTask, DownloadTask, QAfterFilterCondition>
+  subtitlesLengthLessThan(int length, {bool include = false}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(r'subtitles', 0, true, length, include);
+    });
+  }
+
+  QueryBuilder<DownloadTask, DownloadTask, QAfterFilterCondition>
+  subtitlesLengthGreaterThan(int length, {bool include = false}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(r'subtitles', length, include, 999999, true);
+    });
+  }
+
+  QueryBuilder<DownloadTask, DownloadTask, QAfterFilterCondition>
+  subtitlesLengthBetween(
+    int lower,
+    int upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(
+        r'subtitles',
+        lower,
+        includeLower,
+        upper,
+        includeUpper,
       );
     });
   }
@@ -1608,6 +1706,13 @@ extension DownloadTaskQueryObject
       return query.object(q, r'headers');
     });
   }
+
+  QueryBuilder<DownloadTask, DownloadTask, QAfterFilterCondition>
+  subtitlesElement(FilterQuery<DownloadSubtitle> q) {
+    return QueryBuilder.apply(this, (query) {
+      return query.object(q, r'subtitles');
+    });
+  }
 }
 
 extension DownloadTaskQueryLinks
@@ -1702,17 +1807,16 @@ extension DownloadTaskQuerySortBy
     });
   }
 
-  QueryBuilder<DownloadTask, DownloadTask, QAfterSortBy>
-  sortByRequiresHlsServer() {
+  QueryBuilder<DownloadTask, DownloadTask, QAfterSortBy> sortByRequiresProxy() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'requiresHlsServer', Sort.asc);
+      return query.addSortBy(r'requiresProxy', Sort.asc);
     });
   }
 
   QueryBuilder<DownloadTask, DownloadTask, QAfterSortBy>
-  sortByRequiresHlsServerDesc() {
+  sortByRequiresProxyDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'requiresHlsServer', Sort.desc);
+      return query.addSortBy(r'requiresProxy', Sort.desc);
     });
   }
 
@@ -1879,17 +1983,16 @@ extension DownloadTaskQuerySortThenBy
     });
   }
 
-  QueryBuilder<DownloadTask, DownloadTask, QAfterSortBy>
-  thenByRequiresHlsServer() {
+  QueryBuilder<DownloadTask, DownloadTask, QAfterSortBy> thenByRequiresProxy() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'requiresHlsServer', Sort.asc);
+      return query.addSortBy(r'requiresProxy', Sort.asc);
     });
   }
 
   QueryBuilder<DownloadTask, DownloadTask, QAfterSortBy>
-  thenByRequiresHlsServerDesc() {
+  thenByRequiresProxyDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'requiresHlsServer', Sort.desc);
+      return query.addSortBy(r'requiresProxy', Sort.desc);
     });
   }
 
@@ -2006,9 +2109,9 @@ extension DownloadTaskQueryWhereDistinct
   }
 
   QueryBuilder<DownloadTask, DownloadTask, QDistinct>
-  distinctByRequiresHlsServer() {
+  distinctByRequiresProxy() {
     return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'requiresHlsServer');
+      return query.addDistinctBy(r'requiresProxy');
     });
   }
 
@@ -2104,10 +2207,9 @@ extension DownloadTaskQueryProperty
     });
   }
 
-  QueryBuilder<DownloadTask, bool, QQueryOperations>
-  requiresHlsServerProperty() {
+  QueryBuilder<DownloadTask, bool, QQueryOperations> requiresProxyProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'requiresHlsServer');
+      return query.addPropertyName(r'requiresProxy');
     });
   }
 
@@ -2121,6 +2223,13 @@ extension DownloadTaskQueryProperty
   statusProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'status');
+    });
+  }
+
+  QueryBuilder<DownloadTask, List<DownloadSubtitle>, QQueryOperations>
+  subtitlesProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'subtitles');
     });
   }
 
@@ -2496,3 +2605,504 @@ extension DownloadHeaderQueryFilter
 
 extension DownloadHeaderQueryObject
     on QueryBuilder<DownloadHeader, DownloadHeader, QFilterCondition> {}
+
+// coverage:ignore-file
+// ignore_for_file: duplicate_ignore, non_constant_identifier_names, constant_identifier_names, invalid_use_of_protected_member, unnecessary_cast, prefer_const_constructors, lines_longer_than_80_chars, require_trailing_commas, inference_failure_on_function_invocation, unnecessary_parenthesis, unnecessary_raw_strings, unnecessary_null_checks, join_return_with_assignment, prefer_final_locals, avoid_js_rounded_ints, avoid_positional_boolean_parameters, always_specify_types
+
+const DownloadSubtitleSchema = Schema(
+  name: r'DownloadSubtitle',
+  id: -1217517709127904216,
+  properties: {
+    r'label': PropertySchema(id: 0, name: r'label', type: IsarType.string),
+    r'language': PropertySchema(
+      id: 1,
+      name: r'language',
+      type: IsarType.string,
+    ),
+    r'url': PropertySchema(id: 2, name: r'url', type: IsarType.string),
+  },
+
+  estimateSize: _downloadSubtitleEstimateSize,
+  serialize: _downloadSubtitleSerialize,
+  deserialize: _downloadSubtitleDeserialize,
+  deserializeProp: _downloadSubtitleDeserializeProp,
+);
+
+int _downloadSubtitleEstimateSize(
+  DownloadSubtitle object,
+  List<int> offsets,
+  Map<Type, List<int>> allOffsets,
+) {
+  var bytesCount = offsets.last;
+  bytesCount += 3 + object.label.length * 3;
+  bytesCount += 3 + object.language.length * 3;
+  bytesCount += 3 + object.url.length * 3;
+  return bytesCount;
+}
+
+void _downloadSubtitleSerialize(
+  DownloadSubtitle object,
+  IsarWriter writer,
+  List<int> offsets,
+  Map<Type, List<int>> allOffsets,
+) {
+  writer.writeString(offsets[0], object.label);
+  writer.writeString(offsets[1], object.language);
+  writer.writeString(offsets[2], object.url);
+}
+
+DownloadSubtitle _downloadSubtitleDeserialize(
+  Id id,
+  IsarReader reader,
+  List<int> offsets,
+  Map<Type, List<int>> allOffsets,
+) {
+  final object = DownloadSubtitle();
+  object.label = reader.readString(offsets[0]);
+  object.language = reader.readString(offsets[1]);
+  object.url = reader.readString(offsets[2]);
+  return object;
+}
+
+P _downloadSubtitleDeserializeProp<P>(
+  IsarReader reader,
+  int propertyId,
+  int offset,
+  Map<Type, List<int>> allOffsets,
+) {
+  switch (propertyId) {
+    case 0:
+      return (reader.readString(offset)) as P;
+    case 1:
+      return (reader.readString(offset)) as P;
+    case 2:
+      return (reader.readString(offset)) as P;
+    default:
+      throw IsarError('Unknown property with id $propertyId');
+  }
+}
+
+extension DownloadSubtitleQueryFilter
+    on QueryBuilder<DownloadSubtitle, DownloadSubtitle, QFilterCondition> {
+  QueryBuilder<DownloadSubtitle, DownloadSubtitle, QAfterFilterCondition>
+  labelEqualTo(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'label',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<DownloadSubtitle, DownloadSubtitle, QAfterFilterCondition>
+  labelGreaterThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'label',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<DownloadSubtitle, DownloadSubtitle, QAfterFilterCondition>
+  labelLessThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'label',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<DownloadSubtitle, DownloadSubtitle, QAfterFilterCondition>
+  labelBetween(
+    String lower,
+    String upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'label',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<DownloadSubtitle, DownloadSubtitle, QAfterFilterCondition>
+  labelStartsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'label',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<DownloadSubtitle, DownloadSubtitle, QAfterFilterCondition>
+  labelEndsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'label',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<DownloadSubtitle, DownloadSubtitle, QAfterFilterCondition>
+  labelContains(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'label',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<DownloadSubtitle, DownloadSubtitle, QAfterFilterCondition>
+  labelMatches(String pattern, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'label',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<DownloadSubtitle, DownloadSubtitle, QAfterFilterCondition>
+  labelIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'label', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<DownloadSubtitle, DownloadSubtitle, QAfterFilterCondition>
+  labelIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(property: r'label', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<DownloadSubtitle, DownloadSubtitle, QAfterFilterCondition>
+  languageEqualTo(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'language',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<DownloadSubtitle, DownloadSubtitle, QAfterFilterCondition>
+  languageGreaterThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'language',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<DownloadSubtitle, DownloadSubtitle, QAfterFilterCondition>
+  languageLessThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'language',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<DownloadSubtitle, DownloadSubtitle, QAfterFilterCondition>
+  languageBetween(
+    String lower,
+    String upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'language',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<DownloadSubtitle, DownloadSubtitle, QAfterFilterCondition>
+  languageStartsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'language',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<DownloadSubtitle, DownloadSubtitle, QAfterFilterCondition>
+  languageEndsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'language',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<DownloadSubtitle, DownloadSubtitle, QAfterFilterCondition>
+  languageContains(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'language',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<DownloadSubtitle, DownloadSubtitle, QAfterFilterCondition>
+  languageMatches(String pattern, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'language',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<DownloadSubtitle, DownloadSubtitle, QAfterFilterCondition>
+  languageIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'language', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<DownloadSubtitle, DownloadSubtitle, QAfterFilterCondition>
+  languageIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(property: r'language', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<DownloadSubtitle, DownloadSubtitle, QAfterFilterCondition>
+  urlEqualTo(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'url',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<DownloadSubtitle, DownloadSubtitle, QAfterFilterCondition>
+  urlGreaterThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'url',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<DownloadSubtitle, DownloadSubtitle, QAfterFilterCondition>
+  urlLessThan(String value, {bool include = false, bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'url',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<DownloadSubtitle, DownloadSubtitle, QAfterFilterCondition>
+  urlBetween(
+    String lower,
+    String upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'url',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<DownloadSubtitle, DownloadSubtitle, QAfterFilterCondition>
+  urlStartsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'url',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<DownloadSubtitle, DownloadSubtitle, QAfterFilterCondition>
+  urlEndsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'url',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<DownloadSubtitle, DownloadSubtitle, QAfterFilterCondition>
+  urlContains(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'url',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<DownloadSubtitle, DownloadSubtitle, QAfterFilterCondition>
+  urlMatches(String pattern, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'url',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<DownloadSubtitle, DownloadSubtitle, QAfterFilterCondition>
+  urlIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'url', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<DownloadSubtitle, DownloadSubtitle, QAfterFilterCondition>
+  urlIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(property: r'url', value: ''),
+      );
+    });
+  }
+}
+
+extension DownloadSubtitleQueryObject
+    on QueryBuilder<DownloadSubtitle, DownloadSubtitle, QFilterCondition> {}

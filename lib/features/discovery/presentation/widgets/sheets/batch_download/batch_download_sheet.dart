@@ -100,6 +100,8 @@ class BatchDownloadSheetState extends ConsumerState<BatchDownloadSheet> {
   String? streamsError;
   VideoStream? selectedStream;
 
+  Set<String> selectedSubtitleLabels = {};
+
   int currentIndex = 0;
   int successCount = 0;
   String currentQueueStatus = '';
@@ -298,6 +300,12 @@ class BatchDownloadSheetState extends ConsumerState<BatchDownloadSheet> {
     if (selectedServer == null || selectedStream == null) return;
 
     if (fromIndexZero) {
+      final subLabels = await _promptSubtitlesForBatch();
+      if (subLabels == null) {
+        return; // User cancelled
+      }
+      selectedSubtitleLabels = subLabels;
+
       if (Platform.isAndroid) {
         final permission = await DeviceInfo.isAndroid10OrBelow()
             ? Permission.storage
@@ -469,6 +477,21 @@ class BatchDownloadSheetState extends ConsumerState<BatchDownloadSheet> {
             continue;
           }
 
+          final matchedSubs = matchedStream.subtitles
+              .where((sub) {
+                final label = sub.label ?? sub.language;
+                return selectedSubtitleLabels.contains(label) &&
+                    sub.url.isNotEmpty;
+              })
+              .map(
+                (s) => DownloadSubtitle.create(
+                  url: s.url,
+                  language: s.language,
+                  label: s.label ?? s.language,
+                ),
+              )
+              .toList();
+
           final task = DownloadTask()
             ..url = downloadUrl
             ..mediaId = widget.media.id
@@ -476,10 +499,11 @@ class BatchDownloadSheetState extends ConsumerState<BatchDownloadSheet> {
             ..episodeNumber = ep.number
             ..savePath = '$targetDir/$fileName'
             ..fileName = fileName
-            ..requiresHlsServer = matchedStream.requiresHlsServer
+            ..requiresProxy = matchedStream.requiresProxy
             ..totalBytes = DownloadUrlHelper.parseSizeToBytes(
               matchedStream.size,
-            );
+            )
+            ..subtitles = matchedSubs;
 
           await ref.read(downloadManagerProvider.notifier).startDownload(task);
           queuedTaskIds.add(task.id);
@@ -577,6 +601,43 @@ class BatchDownloadSheetState extends ConsumerState<BatchDownloadSheet> {
     );
   }
 
+  Future<Set<String>?> _promptSubtitlesForBatch() async {
+    final allSubtitles = <SubtitleTrack>[];
+    if (selectedStream != null) {
+      for (final sub in selectedStream!.subtitles) {
+        if (sub.url.isNotEmpty && sub != SubtitleTrack.none) {
+          final sLabel = sub.label ?? sub.language;
+          final label = '${selectedServer?.name ?? "Unknown"} - $sLabel';
+          allSubtitles.add(sub.copyWith(label: label));
+        }
+      }
+    }
+
+    if (allSubtitles.isEmpty) {
+      return {};
+    }
+
+    final uniqueSubs = <String, SubtitleTrack>{};
+    for (final sub in allSubtitles) {
+      if (!uniqueSubs.containsKey(sub.url)) {
+        uniqueSubs[sub.url] = sub;
+      }
+    }
+    final subsList = uniqueSubs.values.toList();
+
+    final selectedTracks = await AppBottomSheet.show<List<SubtitleTrack>>(
+      context: context,
+      title: 'Select Subtitles',
+      titleIcon: Icons.subtitles_rounded,
+      child: _SubtitleSelectionSheet(subtitles: subsList),
+    );
+
+    if (selectedTracks == null) {
+      return null;
+    }
+    return selectedTracks.map((e) => e.label ?? e.language).toSet();
+  }
+
   Widget _buildCurrentStep() {
     switch (currentStep) {
       case BatchStep.selectEpisodes:
@@ -589,5 +650,76 @@ class BatchDownloadSheetState extends ConsumerState<BatchDownloadSheet> {
       case BatchStep.failedRecovery:
         return FailedRecoveryStep(state: this);
     }
+  }
+}
+
+class _SubtitleSelectionSheet extends StatefulWidget {
+  final List<SubtitleTrack> subtitles;
+
+  const _SubtitleSelectionSheet({required this.subtitles});
+
+  @override
+  State<_SubtitleSelectionSheet> createState() =>
+      _SubtitleSelectionSheetState();
+}
+
+class _SubtitleSelectionSheetState extends State<_SubtitleSelectionSheet> {
+  final Set<SubtitleTrack> _selected = {};
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ListView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: widget.subtitles.length,
+          itemBuilder: (context, index) {
+            final sub = widget.subtitles[index];
+            final isSelected = _selected.contains(sub);
+            return CheckboxListTile(
+              title: Text(
+                sub.label ?? sub.language,
+                style: TextStyle(
+                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                ),
+              ),
+              value: isSelected,
+              activeColor: cs.primary,
+              onChanged: (checked) {
+                setState(() {
+                  if (checked == true) {
+                    _selected.add(sub);
+                  } else {
+                    _selected.remove(sub);
+                  }
+                });
+              },
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            );
+          },
+        ),
+        const SizedBox(height: 16),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(null),
+              child: const Text('Cancel'),
+            ),
+            const SizedBox(width: 8),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(_selected.toList()),
+              child: const Text('Download'),
+            ),
+          ],
+        ),
+      ],
+    );
   }
 }

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:anymex_extension_runtime_bridge/anymex_extension_runtime_bridge.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:screenshot/screenshot.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import 'package:collection/collection.dart';
 import 'package:shonenx/core/network/http_client.dart';
@@ -21,7 +22,8 @@ import 'package:shonenx/features/player/providers/selection_resolver.dart';
 import 'package:shonenx/features/player/providers/subtitle_prefs_provider.dart';
 import 'package:shonenx/features/player/providers/video_engine_provider.dart';
 import 'package:shonenx/features/player/utils/screenshot_helper.dart';
-import 'package:shonenx/core/network/hls_server/hls_server.dart';
+import 'package:shonenx/core/network/stream_server/stream_server.dart';
+import 'package:shonenx/core/network/stream_server/hls/hls_stream.dart';
 import 'package:shonenx/shared/models/unified_episode.dart';
 import 'package:shonenx/shared/models/unified_media.dart';
 import 'package:shonenx/shared/models/video_server.dart';
@@ -152,6 +154,7 @@ class PlayerController extends Notifier<PlayerState> {
 
     ref.onDispose(() {
       _isDisposed = true;
+      WakelockPlus.disable();
       _endingSkipCooldownTimer?.cancel();
       _progressTracker.cancel();
       unawaited(TorrentStreamResolver.dispose());
@@ -177,12 +180,19 @@ class PlayerController extends Notifier<PlayerState> {
       }
     });
 
-    // Update Discord RPC when play/pause changes
+    // Update Discord RPC and Wakelock when play/pause changes
     ref.listen(videoEngineStateProvider.select((s) => s.isPlaying), (
       prev,
       current,
     ) {
-      if (!_isDisposed && prev != current) _updateDiscordRpc();
+      if (!_isDisposed && prev != current) {
+        _updateDiscordRpc();
+        if (current) {
+          WakelockPlus.enable();
+        } else {
+          WakelockPlus.disable();
+        }
+      }
     });
 
     // Handles auto-skip & auto-next episode
@@ -323,17 +333,20 @@ class PlayerController extends Notifier<PlayerState> {
     if (url.toLowerCase().contains('.m3u8')) return [];
     try {
       final tracks = await extractMkvTracksJson(url);
+      final subtitleTracks = tracks
+          .where((t) => t['type'] == 'Subtitle')
+          .toList();
       return [
-        for (final track in tracks)
-          if (track['type'] == 'Subtitle' &&
-              (track['trackNumber']?.toString() ?? '').isNotEmpty)
+        for (int i = 0; i < subtitleTracks.length; i++)
+          if ((subtitleTracks[i]['trackNumber']?.toString() ?? '').isNotEmpty)
             SubtitleTrack(
-              url: 'internal:${track['trackNumber']}',
-              language: track['language']?.toString() ?? 'Unknown',
+              url: 'internal:\${i + 1}',
+              language: subtitleTracks[i]['language']?.toString() ?? 'Unknown',
               label: () {
-                final lang = track['language']?.toString() ?? 'Unknown';
-                final name = track['name']?.toString() ?? '';
-                return name.isNotEmpty ? '$lang - $name' : lang;
+                final lang =
+                    subtitleTracks[i]['language']?.toString() ?? 'Unknown';
+                final name = subtitleTracks[i]['name']?.toString() ?? '';
+                return name.isNotEmpty ? '\$lang - \$name' : lang;
               }(),
             ),
       ];
@@ -781,8 +794,8 @@ class PlayerController extends Notifier<PlayerState> {
       resolvedStream = stream.copyWith(url: resolved.streamUrl);
     }
 
-    if (resolvedStream.requiresHlsServer) {
-      final server = ref.read(hlsServerProvider);
+    if (resolvedStream.requiresProxy) {
+      final server = ref.read(streamServerProvider);
 
       if (_currentHlsStreamId != null) {
         server.unregister(_currentHlsStreamId!);
@@ -792,9 +805,11 @@ class PlayerController extends Notifier<PlayerState> {
       _currentHlsStreamId = id;
 
       final localUrl = await server.register(
-        id: id,
-        url: resolvedStream.url,
-        headers: resolvedStream.headers,
+        HlsStream(
+          id: id,
+          upstreamUrl: resolvedStream.url,
+          headers: resolvedStream.headers ?? {},
+        ),
       );
       resolvedStream = resolvedStream.copyWith(url: localUrl);
     }
