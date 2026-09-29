@@ -7,7 +7,6 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 
 import 'package:collection/collection.dart';
 import 'package:shonenx/core/network/http_client.dart';
-import 'package:shonenx/core/utils/video.dart';
 import 'package:shonenx/features/discovery/domain/media_args.dart';
 import 'package:shonenx/features/discovery/providers/episodes_provider.dart';
 import 'package:shonenx/features/discord/providers/discord_rpc_provider.dart';
@@ -20,7 +19,11 @@ import 'package:shonenx/features/player/providers/player_prefs_provider.dart';
 import 'package:shonenx/features/player/providers/progress_tracker.dart';
 import 'package:shonenx/features/player/providers/selection_resolver.dart';
 import 'package:shonenx/features/player/providers/subtitle_prefs_provider.dart';
-import 'package:shonenx/features/player/providers/video_engine_provider.dart';
+import 'package:shonenx/features/player/engine/video_engine.dart';
+import 'package:shonenx/features/player/engine/media_kit/media_kit_engine.dart';
+import 'package:shonenx/features/player/engine/better_player/better_player_engine.dart';
+import 'package:shonenx/features/player/providers/media_kit_prefs_provider.dart';
+import 'package:shonenx/features/player/providers/better_player_prefs_provider.dart';
 import 'package:shonenx/features/player/utils/screenshot_helper.dart';
 import 'package:shonenx/core/network/stream_server/stream_server.dart';
 import 'package:shonenx/core/network/stream_server/hls/hls_stream.dart';
@@ -31,11 +34,6 @@ import 'package:shonenx/shared/models/video_stream.dart';
 import 'package:shonenx/source_engine/providers/anime_source.dart';
 import 'package:shonenx/source_engine/source_engine_provider.dart';
 
-// Sentinel object for copyWith error handling.
-// Needed because null is a valid error value (to clear error state).
-const _keepError = Object();
-
-// Holds state for the player UI.
 class PlayerState {
   final List<VideoServer> servers;
   final List<VideoStream> streams;
@@ -79,8 +77,10 @@ class PlayerState {
     UnifiedEpisode? activeEpisode,
     double? playbackSpeed,
     bool? isLoading,
-    Object? error = _keepError,
-    Object? malId = _keepError,
+    String? error,
+    bool clearError = false,
+    int? malId,
+    bool clearMalId = false,
   }) {
     return PlayerState(
       servers: servers ?? this.servers,
@@ -94,13 +94,12 @@ class PlayerState {
       activeEpisode: activeEpisode ?? this.activeEpisode,
       playbackSpeed: playbackSpeed ?? this.playbackSpeed,
       isLoading: isLoading ?? this.isLoading,
-      error: identical(error, _keepError) ? this.error : error as String?,
-      malId: identical(malId, _keepError) ? this.malId : malId as int?,
+      error: clearError ? null : (error ?? this.error),
+      malId: clearMalId ? null : (malId ?? this.malId),
     );
   }
 }
 
-// Manages playback, stream switching, episode changing, and progress tracking.
 class PlayerController extends Notifier<PlayerState> {
   UnifiedMedia? _media;
   UnifiedMedia? get media => _media;
@@ -111,15 +110,15 @@ class PlayerController extends Notifier<PlayerState> {
   late final SelectionResolver _resolver;
   late final ProgressTracker _progressTracker;
 
-  // Track auto-skipped segments to prevent repeat triggers when seeking backwards
+  late VideoEngine _engine;
+  VideoEngine get engine => _engine;
+
   final Set<SkipType> _alreadyAutoSkipped = {};
 
   List<AniSkipStamp> _currentSkips = [];
 
-  // Prevents multiple skip triggers during episode loading transitions
   bool _isSkipping = false;
 
-  // Ending skip cooldown prevents instant auto-next when an ending is skipped
   bool _endingSkipCooldown = false;
   Timer? _endingSkipCooldownTimer;
 
@@ -149,69 +148,105 @@ class PlayerController extends Notifier<PlayerState> {
         activeEpisode: state.activeEpisode,
         activeServer: state.activeServer,
         sourceInfo: _source?.sourceInfo,
+        engine: _engine,
       ),
     );
+
+    final playerType = ref.watch(
+      playerPrefsProvider.select((s) => s.playerType),
+    );
+    if (playerType == PlayerType.mediakit) {
+      final prefs = ref.read(mediaKitPrefsProvider);
+      _engine = MediaKitEngine(prefs);
+      ref.listen(mediaKitPrefsProvider, (_, next) {
+        (_engine as MediaKitEngine).updatePrefs(next);
+      });
+    } else {
+      final prefs = ref.read(betterPlayerPrefsProvider);
+      _engine = BetterPlayerEngine(prefs);
+      ref.listen(betterPlayerPrefsProvider, (_, next) {
+        (_engine as BetterPlayerEngine).updatePrefs(next);
+      });
+    }
 
     ref.onDispose(() {
       _isDisposed = true;
       WakelockPlus.disable();
       _endingSkipCooldownTimer?.cancel();
       _progressTracker.cancel();
+      _engine.dispose();
       unawaited(TorrentStreamResolver.dispose());
     });
 
-    // Re-apply native subtitle when the "use custom subtitle" pref toggles
     ref.listen(subtitlePrefsProvider, (prev, current) {
       if (prev?.useCustomSubtitle != current.useCustomSubtitle) {
         _applyNativeSubtitle(state.activeSubtitle);
       }
     });
 
-    // Auto-select preferred audio track when tracks become available
-    ref.listen(videoEngineStateProvider.select((s) => s.audioTracks), (
-      _,
-      tracks,
-    ) {
+    _engine.audioTracksNotifier.addListener(() {
+      if (_isDisposed) return;
+      final tracks = _engine.audioTracksNotifier.value;
       if (tracks.isNotEmpty) {
         final match = _resolver.resolveAudioTrack(tracks);
         if (match != null) {
-          ref.read(videoEngineProvider).setAudioTrack(match);
+          _engine.setAudioTrack(match);
         }
       }
     });
 
-    // Update Discord RPC and Wakelock when play/pause changes
-    ref.listen(videoEngineStateProvider.select((s) => s.isPlaying), (
-      prev,
-      current,
-    ) {
-      if (!_isDisposed && prev != current) {
-        _updateDiscordRpc();
-        if (current) {
-          WakelockPlus.enable();
-        } else {
-          WakelockPlus.disable();
-        }
+    _engine.statusNotifier.addListener(() {
+      if (_isDisposed) return;
+      final status = _engine.statusNotifier.value;
+      if (status == PlayerStatus.playing) {
+        WakelockPlus.enable();
+      } else {
+        WakelockPlus.disable();
       }
+      _updateDiscordRpc();
     });
 
-    // Handles auto-skip & auto-next episode
-    ref.listen(
-      videoEngineStateProvider.select((s) => (s.position, s.duration)),
-      (prev, next) {
-        if (!_isDisposed) {
-          _onPlaybackProgress(next.$1, next.$2);
-        }
-      },
-    );
+    _engine.positionNotifier.addListener(() {
+      if (_isDisposed) return;
+      _onPlaybackProgress(
+        _engine.positionNotifier.value,
+        _engine.durationNotifier.value,
+      );
+    });
 
-    // Fetch skips once when duration becomes known for the active episode
-    ref.listen(videoEngineStateProvider.select((s) => s.duration.inSeconds), (
-      prev,
-      durationSec,
-    ) {
-      if (durationSec >= 50 && prev != durationSec) {
+    _engine.durationNotifier.addListener(() {
+      if (_isDisposed) return;
+      final durationSec = _engine.durationNotifier.value.inSeconds;
+      if (durationSec >= 50) {
         _fetchSkipsIfNeeded(durationSec: durationSec);
+      }
+    });
+
+    _engine.subtitleTracksNotifier.addListener(() {
+      if (_isDisposed) return;
+      final nativeTracks = _engine.subtitleTracksNotifier.value;
+      if (nativeTracks.isEmpty) return;
+
+      final currentSubs = List<SubtitleTrack>.from(state.subtitles);
+      bool changed = false;
+
+      for (final nt in nativeTracks) {
+        if (!currentSubs.any((s) => s.url == nt.url)) {
+          currentSubs.add(nt);
+          changed = true;
+        }
+      }
+
+      if (changed) {
+        state = state.copyWith(subtitles: currentSubs);
+
+        if (state.activeSubtitle == SubtitleTrack.none ||
+            state.activeSubtitle == null) {
+          final newActive = _resolver.resolveSubtitle(currentSubs);
+          if (newActive != SubtitleTrack.none) {
+            changeSubtitle(newActive);
+          }
+        }
       }
     });
 
@@ -232,7 +267,6 @@ class PlayerController extends Notifier<PlayerState> {
 
     final seconds = position.inSeconds;
 
-    // 1. Auto-Skip (Opening, Ending, Recap)
     if (_currentSkips.isNotEmpty) {
       final prefs = ref.read(aniskipPrefsProvider);
       for (final skip in _currentSkips) {
@@ -240,9 +274,7 @@ class PlayerController extends Notifier<PlayerState> {
 
         final isInside = seconds >= skip.startTime && seconds < skip.endTime;
         if (isInside && _alreadyAutoSkipped.add(skip.type)) {
-          ref
-              .read(videoEngineProvider)
-              .seekTo(Duration(seconds: skip.endTime.ceil()));
+          _engine.seekTo(Duration(seconds: skip.endTime.ceil()));
 
           if (skip.type == SkipType.ending ||
               skip.type == SkipType.mixedEnding) {
@@ -252,7 +284,6 @@ class PlayerController extends Notifier<PlayerState> {
       }
     }
 
-    // 2. Auto-Next Episode Trigger
     final playerPrefs = ref.read(playerPrefsProvider);
     if (playerPrefs.autoNext &&
         hasNextEpisode &&
@@ -307,8 +338,7 @@ class PlayerController extends Notifier<PlayerState> {
   }
 
   Future<void> _fetchSkipsIfNeeded({int? durationSec}) async {
-    final duration =
-        durationSec ?? ref.read(videoEngineStateProvider).duration.inSeconds;
+    final duration = durationSec ?? _engine.durationNotifier.value.inSeconds;
     final malId = state.malId;
     final ep = state.activeEpisode;
     if (malId == null || ep == null || duration < 50 || ep.number % 1 != 0) {
@@ -328,36 +358,8 @@ class PlayerController extends Notifier<PlayerState> {
     }
   }
 
-  // Extracts embedded subtitle tracks from MKV/non-HLS files
-  Future<List<SubtitleTrack>> _extractInternalSubtitles(String url) async {
-    if (url.toLowerCase().contains('.m3u8')) return [];
-    try {
-      final tracks = await extractMkvTracksJson(url);
-      final subtitleTracks = tracks
-          .where((t) => t['type'] == 'Subtitle')
-          .toList();
-      return [
-        for (int i = 0; i < subtitleTracks.length; i++)
-          if ((subtitleTracks[i]['trackNumber']?.toString() ?? '').isNotEmpty)
-            SubtitleTrack(
-              url: 'internal:\${i + 1}',
-              language: subtitleTracks[i]['language']?.toString() ?? 'Unknown',
-              label: () {
-                final lang =
-                    subtitleTracks[i]['language']?.toString() ?? 'Unknown';
-                final name = subtitleTracks[i]['name']?.toString() ?? '';
-                return name.isNotEmpty ? '\$lang - \$name' : lang;
-              }(),
-            ),
-      ];
-    } catch (_) {
-      return [];
-    }
-  }
-
-  /// Loads a local file for offline playback (no servers, no quality picker).
   Future<void> _loadOfflineData(PlayerModeOffline mode) async {
-    ref.read(videoEngineProvider).pause();
+    _engine.pause();
     state = state.copyWith(
       isLoading: true,
       error: null,
@@ -379,9 +381,7 @@ class PlayerController extends Notifier<PlayerState> {
         subtitles: [],
       );
 
-      final internalSubtitles = await _extractInternalSubtitles(mode.filePath);
-
-      final subtitles = [SubtitleTrack.none, ...internalSubtitles];
+      final subtitles = [SubtitleTrack.none];
       final activeSubtitle = _resolver.resolveSubtitle(subtitles);
 
       state = state.copyWith(
@@ -394,13 +394,11 @@ class PlayerController extends Notifier<PlayerState> {
         isLoading: false,
       );
 
-      await ref
-          .read(videoEngineProvider)
-          .initialize(
-            localStream,
-            subtitle: activeSubtitle,
-            startAt: Duration.zero,
-          );
+      await _engine.initialize(
+        localStream,
+        subtitle: activeSubtitle,
+        startAt: Duration.zero,
+      );
     } catch (e) {
       state = state.copyWith(isLoading: false, error: e.toString());
     }
@@ -420,7 +418,7 @@ class PlayerController extends Notifier<PlayerState> {
       _alreadyAutoSkipped.clear();
       _currentSkips = [];
       _progressTracker.resetThumbnail();
-      ref.read(videoEngineProvider).pause();
+      _engine.pause();
     }
 
     state = state.copyWith(
@@ -438,25 +436,20 @@ class PlayerController extends Notifier<PlayerState> {
     );
 
     try {
-      // Fetch available video servers for this episode
       List<VideoServer> servers = state.servers;
       if (force || server == null || isNewEpisode) {
         servers = await _source!.getServers(episode.id);
         if (servers.isEmpty) throw Exception('No servers available.');
       }
 
-      // Pick server matching user's preferred type
       final activeServer = _resolver.resolveServer(servers, explicit: server);
       state = state.copyWith(servers: servers, activeServer: activeServer);
 
-      // Fetch video stream mirrors from selected server
       final streams = await _source!.getSources(episode.id, activeServer);
       if (streams.isEmpty) throw Exception('No streams available.');
 
-      // Pick stream matching preferred sub/dub type & quality settings
       final activeStream = _resolver.resolveStream(streams);
 
-      // Start playback immediately with active stream
       state = state.copyWith(
         streams: streams,
         activeStream: activeStream,
@@ -465,7 +458,6 @@ class PlayerController extends Notifier<PlayerState> {
         isLoading: false,
       );
 
-      // Fire off video initialization with the active stream immediately
       unawaited(
         _initVideoPlayer(
           activeStream,
@@ -475,7 +467,6 @@ class PlayerController extends Notifier<PlayerState> {
         ).then((_) => _updateDiscordRpc()),
       );
 
-      // Background resolve qualities (M3U8 parsing)
       final httpClient = ref.read(httpClientProvider);
       final qualityResult = await _resolver.resolveQualities(
         streams,
@@ -483,32 +474,9 @@ class PlayerController extends Notifier<PlayerState> {
         httpClient,
       );
 
-      final Set<String> activeServerSeenUrls = {};
-      final List<SubtitleTrack> labelledSubtitles = [];
-      for (final stream in streams) {
-        for (final sub in stream.subtitles) {
-          if (!activeServerSeenUrls.contains(sub.url) && sub.url.isNotEmpty) {
-            activeServerSeenUrls.add(sub.url);
-            labelledSubtitles.add(
-              sub.copyWith(
-                label: _resolveSubtitleLabel(sub, stream, activeServer),
-              ),
-            );
-          }
-        }
-      }
-
-      // If no external subtitles were found, try extracting internal tracks
-      if (labelledSubtitles.isEmpty) {
-        labelledSubtitles.addAll(
-          await _extractInternalSubtitles(activeStream.url),
-        );
-      }
-
-      final subtitles = [SubtitleTrack.none, ...labelledSubtitles];
+      final subtitles = _mapSubtitles({activeServer: streams});
       final activeSubtitle = _resolver.resolveSubtitle(subtitles);
 
-      // Update controller state with resolved active options
       state = state.copyWith(
         qualities: qualityResult.list,
         activeQuality: qualityResult.active,
@@ -516,16 +484,14 @@ class PlayerController extends Notifier<PlayerState> {
         activeSubtitle: activeSubtitle,
       );
 
-      // Apply subtitle to the already running video engine
       if (activeSubtitle != SubtitleTrack.none) {
         _applyNativeSubtitle(activeSubtitle);
       }
 
-      // Re-initialize if the active quality changed from what we initially loaded
       if (qualityResult.active.url != activeStream.url &&
           _resolver.preferredQuality != null &&
           _resolver.preferredQuality != 'Auto') {
-        final currentPos = ref.read(videoEngineProvider).currentPosition;
+        final currentPos = _engine.currentPosition;
         final finalStartAt = currentPos.inSeconds > 0
             ? currentPos
             : startPosition;
@@ -538,8 +504,7 @@ class PlayerController extends Notifier<PlayerState> {
         );
       }
 
-      // Background fetch extra subs
-      unawaited(_fetchAdditionalSubtitles(episode.id));
+      unawaited(_fetchAdditionalSubtitles(episode.id, activeServer, streams));
     } catch (e) {
       if (!ref.mounted) return;
       state = state.copyWith(isLoading: false, error: e.toString());
@@ -581,12 +546,37 @@ class PlayerController extends Notifier<PlayerState> {
     return parts.join(' • ');
   }
 
-  Future<void> _fetchAdditionalSubtitles(String episodeId) async {
+  List<SubtitleTrack> _mapSubtitles(
+    Map<VideoServer, List<VideoStream>> serverStreams,
+  ) {
+    final newSubtitles = <SubtitleTrack>[SubtitleTrack.none];
+    final Set<String> seenUrls = {};
+
+    for (final entry in serverStreams.entries) {
+      final server = entry.key;
+      for (final stream in entry.value) {
+        for (final sub in stream.subtitles) {
+          if (!seenUrls.contains(sub.url) && sub.url.isNotEmpty) {
+            seenUrls.add(sub.url);
+            newSubtitles.add(
+              sub.copyWith(label: _resolveSubtitleLabel(sub, stream, server)),
+            );
+          }
+        }
+      }
+    }
+    return newSubtitles;
+  }
+
+  Future<void> _fetchAdditionalSubtitles(
+    String episodeId,
+    VideoServer activeServer,
+    List<VideoStream> activeStreams,
+  ) async {
     if (_source == null) return;
 
-    final currentServerId = state.activeServer?.id;
     final otherServers = state.servers
-        .where((s) => s.id != currentServerId)
+        .where((s) => s.id != activeServer.id)
         .toList();
     if (otherServers.isEmpty) return;
 
@@ -602,27 +592,18 @@ class PlayerController extends Notifier<PlayerState> {
 
     if (_isDisposed || state.activeEpisode?.id != episodeId) return;
 
-    final newSubtitles = List<SubtitleTrack>.from(state.subtitles);
-    final Set<String> seenUrls = newSubtitles.map((e) => e.url).toSet();
+    final allServerStreams = <VideoServer, List<VideoStream>>{
+      activeServer: activeStreams,
+    };
 
     for (int i = 0; i < otherServers.length; i++) {
-      final server = otherServers[i];
-      for (final stream in streamsList[i]) {
-        for (final sub in stream.subtitles) {
-          if (!seenUrls.contains(sub.url) && sub.url.isNotEmpty) {
-            seenUrls.add(sub.url);
-            newSubtitles.add(
-              sub.copyWith(label: _resolveSubtitleLabel(sub, stream, server)),
-            );
-          }
-        }
-      }
+      allServerStreams[otherServers[i]] = streamsList[i];
     }
 
+    final newSubtitles = _mapSubtitles(allServerStreams);
     state = state.copyWith(subtitles: newSubtitles);
   }
 
-  // Switch active server and reload streams while preserving playback position
   Future<void> changeServer(VideoServer newServer) async {
     final active = state.activeServer;
     if (active != null &&
@@ -631,12 +612,11 @@ class PlayerController extends Notifier<PlayerState> {
       return; // Already on this server
     }
 
-    // Save preferred server settings for future episodes
     _resolver.preferredServerId = newServer.id;
     _resolver.preferredServerType = newServer.type;
     ref.read(playerPrefsProvider.notifier).setDefaultServerType(newServer.type);
 
-    final currentPos = ref.read(videoEngineProvider).currentPosition;
+    final currentPos = _engine.currentPosition;
     await _loadData(
       state.activeEpisode!,
       server: newServer,
@@ -658,7 +638,6 @@ class PlayerController extends Notifier<PlayerState> {
     await changeServer(server);
   }
 
-  // Switch between sub/dub stream labels within the active server
   Future<void> changeStreamType({bool? isDub, bool toggle = true}) async {
     final currentStream = state.activeStream;
     if (currentStream == null) return;
@@ -697,9 +676,8 @@ class PlayerController extends Notifier<PlayerState> {
     }
   }
 
-  // Switch stream mirror and parse available qualities
   Future<void> changeStream(VideoStream newStream) async {
-    final currentPos = ref.read(videoEngineProvider).currentPosition;
+    final currentPos = _engine.currentPosition;
 
     state = state.copyWith(
       isLoading: true,
@@ -735,7 +713,6 @@ class PlayerController extends Notifier<PlayerState> {
     }
   }
 
-  // Switch quality resolution while preserving current position
   Future<void> changeQuality(VideoStream newQuality) async {
     if (state.activeQuality?.quality == newQuality.quality &&
         state.activeQuality?.url == newQuality.url) {
@@ -747,7 +724,7 @@ class PlayerController extends Notifier<PlayerState> {
         .read(playerPrefsProvider.notifier)
         .setDefaultQuality(newQuality.quality);
 
-    final currentPos = ref.read(videoEngineProvider).currentPosition;
+    final currentPos = _engine.currentPosition;
 
     state = state.copyWith(
       activeQuality: newQuality,
@@ -832,12 +809,13 @@ class PlayerController extends Notifier<PlayerState> {
         ? null
         : subtitle;
 
-    await ref
-        .read(videoEngineProvider)
-        .initialize(streamToPlay, subtitle: activeSub, startAt: startAt);
+    await _engine.initialize(
+      streamToPlay,
+      subtitle: activeSub,
+      startAt: startAt,
+    );
   }
 
-  // Update active subtitle track and save language preference
   Future<void> changeSubtitle(SubtitleTrack? newSubtitle) async {
     if (newSubtitle != null && newSubtitle.url.isNotEmpty) {
       _resolver.preferredSubtitleLang = newSubtitle.language;
@@ -874,7 +852,6 @@ class PlayerController extends Notifier<PlayerState> {
     await changeSubtitle(newSub);
   }
 
-  // Update active audio track and save preference
   Future<void> changeAudioTrack(AudioTrack track) async {
     if (track.language != null && track.language!.isNotEmpty) {
       _resolver.preferredAudioLang = track.language;
@@ -888,20 +865,20 @@ class PlayerController extends Notifier<PlayerState> {
       _resolver.preferredAudioLang = 'Auto';
       ref.read(playerPrefsProvider.notifier).setDefaultAudioLang('Auto');
     }
-    await ref.read(videoEngineProvider).setAudioTrack(track);
+    await _engine.setAudioTrack(track);
   }
 
   // Set native subtitle track (or clear it if using custom Flutter overlay)
   Future<void> _applyNativeSubtitle(SubtitleTrack? subtitle) async {
     final useCustom = ref.read(subtitlePrefsProvider).useCustomSubtitle;
     try {
-      if (useCustom || subtitle?.url.isEmpty == true) {
+      if (useCustom || subtitle == null || subtitle.url.isEmpty) {
         if (!_isNativeSubtitleDisabled) {
-          await ref.read(videoEngineProvider).setSubtitle(null);
+          await _engine.setSubtitle(null);
           _isNativeSubtitleDisabled = true;
         }
       } else {
-        await ref.read(videoEngineProvider).setSubtitle(subtitle);
+        await _engine.setSubtitle(subtitle);
         _isNativeSubtitleDisabled = false;
       }
     } catch (e) {
@@ -911,7 +888,7 @@ class PlayerController extends Notifier<PlayerState> {
 
   Future<void> changeSpeed(double speed) async {
     state = state.copyWith(playbackSpeed: speed);
-    await ref.read(videoEngineProvider).setSpeed(speed);
+    await _engine.setSpeed(speed);
   }
 
   Future<void> loadEpisode(
@@ -998,7 +975,7 @@ class PlayerController extends Notifier<PlayerState> {
   }
 
   Future<({bool success, String message})> takeAndShareScreenshot() async {
-    ref.read(videoEngineProvider).pause();
+    _engine.pause();
     return ScreenshotHelper.captureAndShare(
       _screenshotController,
       mediaTitle: _media?.title.getPreferedTitle,
@@ -1011,6 +988,7 @@ class PlayerController extends Notifier<PlayerState> {
       activeEpisode: state.activeEpisode,
       activeServer: state.activeServer,
       sourceInfo: _source?.sourceInfo,
+      engine: _engine,
     );
   }
 
@@ -1020,6 +998,7 @@ class PlayerController extends Notifier<PlayerState> {
       activeEpisode: state.activeEpisode,
       activeServer: state.activeServer,
       sourceInfo: _source?.sourceInfo,
+      engine: _engine,
     );
   }
 
@@ -1028,8 +1007,7 @@ class PlayerController extends Notifier<PlayerState> {
     final activeEp = state.activeEpisode;
     if (activeEp == null) return;
 
-    final engine = ref.read(videoEngineProvider);
-    final isPlaying = ref.read(videoEngineStateProvider).isPlaying;
+    final isPlaying = _engine.statusNotifier.value == PlayerStatus.playing;
 
     ref
         .read(discordRpcProvider.notifier)
@@ -1037,8 +1015,8 @@ class PlayerController extends Notifier<PlayerState> {
           anime: _media!,
           episodeNumber: activeEp.number.toInt(),
           episodeTitle: activeEp.title,
-          positionMs: engine.currentPosition.inMilliseconds,
-          durationMs: engine.currentDuration.inMilliseconds,
+          positionMs: _engine.currentPosition.inMilliseconds,
+          durationMs: _engine.currentDuration.inMilliseconds,
           totalEpisodes: _media!.episodes,
           isPlaying: isPlaying,
         );
