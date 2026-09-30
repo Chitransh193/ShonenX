@@ -1,12 +1,34 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:shonenx/core/network/http_client.dart';
+import 'package:shonenx/shared/providers/storage_provider.dart';
+import 'package:shonenx/core/remote_config/providers/remote_config_provider.dart';
+import 'package:shonenx/source_engine/inbuilt_sources/anime/anikoto.dart';
+import 'package:shonenx/source_engine/inbuilt_sources/anime/animepahe.dart';
+import 'package:shonenx/source_engine/inbuilt_sources/anime/hianime.dart';
+import 'package:shonenx/source_engine/inbuilt_sources/anime/special.dart';
 import 'package:shonenx/source_engine/providers/anime_source.dart';
 import 'package:shonenx/source_engine/providers/manga_source.dart';
+import 'package:shonenx/source_engine/inbuilt_sources/anime/animegg.dart';
 
 final inbuiltAnimeSourcesProvider = Provider<List<AnimeSource>>((ref) {
-  return [];
-}, name: 'inbuiltAnimeSourcesProvider');
+  final client = ref.watch(httpClientProvider);
+  final storage = ref.watch(sharedPreferencesProvider);
+  final remoteConfig = ref.watch(remoteConfigServiceProvider);
+
+  final inbuilt = [
+    AnikotoSource(client: client, storage: storage),
+    SpecialSource(client: client),
+    HiAnimeSource(client: client),
+    AnimePaheSource(client: client, storage: storage),
+    AnimeGG(client: client, storage: storage),
+  ];
+
+  return inbuilt
+      .where((s) => !remoteConfig.isSourceDisabled(s.sourceInfo.id))
+      .toList();
+});
 
 final inbuiltMangaSourcesProvider = Provider<List<MangaSource>>((ref) {
-  return [];
-}, name: 'inbuiltMangaSourcesProvider');
+  return <MangaSource>[];
+});
