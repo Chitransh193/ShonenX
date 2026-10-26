@@ -157,44 +157,25 @@ jobs:
   build-linux:
     if: github.event.inputs.build_linux == 'true'
     runs-on: ubuntu-latest
+    container:
+      image: archlinux:base-devel
+      options: --privileged
     steps:
+      - name: Install system dependencies & optimize Arch container
+        run: |
+          pacman -Syu --noconfirm git jq zip unzip curl xz tar clang cmake ninja pkgconf gtk3 libsecret webkit2gtk-4.1 mpv alsa-lib rustup flatpak flatpak-builder
+          pacman -Scc --noconfirm
+
+      - name: Setup Rust toolchain
+        run: rustup default stable
+
+      - name: Trust git directory
+        run: git config --global --add safe.directory '*'
+
       - uses: actions/checkout@v4
         with:
           submodules: recursive
           token: ${{ secrets.SUBMODULE_PAT }}
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            cmake \
-            ninja-build \
-            pkg-config \
-            libgtk-3-dev \
-            libsecret-1-dev \
-            libmpv-dev \
-            libwebkit2gtk-4.1-dev \
-            flatpak \
-            flatpak-builder
-
-      - name: Setup Rust toolchain
-        run: |
-          rustup update stable
-          rustup default stable
-
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: 3.41.9
-          cache: true
-
-      - name: Cache Pub dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.pub-cache
-          key: ${{ runner.os }}-pub-${{ hashFiles('**/pubspec.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-pub-
 
       - name: Override pubspec.yaml version
         if: github.event.inputs.release_tag != ''
@@ -208,6 +189,19 @@ jobs:
             CLEAN_VER="${CLEAN_VER}${BUILD_NUM}"
           fi
           sed -i -e "s/^version: .*/version: $CLEAN_VER/g" pubspec.yaml
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.41.9
+          cache: true
+
+      - name: Cache Pub dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.pub-cache
+          key: ${{ runner.os }}-pub-${{ hashFiles('**/pubspec.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pub-
 
       - name: Create env file
         run: |
@@ -226,6 +220,9 @@ jobs:
 
       - name: Enable Linux config
         run: flutter config --enable-linux-desktop
+
+      - name: Clean stale build directory
+        run: rm -rf build
 
       - name: Resolve Dependencies
         shell: bash
@@ -619,7 +616,7 @@ jobs:
         run: |
           set -euo pipefail
           git fetch --tags --force
-          # FIX: Sort tags by semantic versioning strictly, ignoring commit ancestry graph
+          # Sort tags by semantic versioning strictly
           if git rev-parse -q --verify "refs/tags/$CURRENT_TAG" >/dev/null; then
             echo "Tag $CURRENT_TAG already exists. Finding the previous tag by version..."
             PREV_TAG=$(git tag --sort=-v:refname | grep -A 1 "^${CURRENT_TAG}$" | tail -n 1)
