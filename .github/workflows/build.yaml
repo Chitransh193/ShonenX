@@ -426,17 +426,42 @@ jobs:
             flutter pub get
           fi
 
+      # media_kit's Windows bundle is a .7z; its hook calls `tar`, and the
+      # tar binaries on this runner lack LZMA support (Flutter hides the error).
+      # Pre-seed the hook's content-addressed cache using 7-Zip instead.
+      - name: Pre-seed media_kit Windows native bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          CHECKSUM=bb6ce9e53c083002fad640011632aef96167cb1d4fffcfe4ed79acbc153bb497
+          URL=https://github.com/Predidit/libmpv-win32-video-cmake/releases/download/202611230430/mpv-dev-x86_64-20261123-git-1eb941f.7z
+          CACHE=".dart_tool/hooks_runner/shared/media_kit/build/prebuilt/$CHECKSUM"
+          mkdir -p "$CACHE/files"
+          curl -fsSL "$URL" -o "$CACHE/archive.7z"
+          ACTUAL=$(sha256sum "$CACHE/archive.7z" | cut -d' ' -f1)
+          if [ "$ACTUAL" != "$CHECKSUM" ]; then
+            echo "Bundle checksum mismatch: $ACTUAL"; exit 1
+          fi
+          SEVENZ=$(command -v 7z || echo "/c/Program Files/7-Zip/7z.exe")
+          "$SEVENZ" x -y "-o$(cygpath -w "$CACHE/files")" "$CACHE/archive.7z" >/dev/null
+          cd "$CACHE/files"
+          python -c "
+          import hashlib, json, os
+          hashes = {}
+          for root, _, files in os.walk('.'):
+              for name in files:
+                  path = os.path.relpath(os.path.join(root, name), '.').replace(os.sep, '/')
+                  with open(path, 'rb') as fh:
+                      hashes[path] = hashlib.sha256(fh.read()).hexdigest()
+          with open('../extracted.json', 'w') as fh:
+              json.dump(hashes, fh)
+          print('seeded', len(hashes), 'files')
+          "
+          cd -
+
       - name: Build Windows app
         shell: bash
         run: |
-          # media_kit's native-asset hook needs Windows' bsdtar (7z/LZMA support).
-          # Git Bash's GNU tar shadows it and fails with "LZMA codec is unsupported".
-          # Copy only tar.exe so bash etc. still resolve to Git Bash.
-          BINDIR="$(cygpath -u "$RUNNER_TEMP")/bsdtar"
-          mkdir -p "$BINDIR"
-          cp /c/Windows/System32/tar.exe "$BINDIR/tar.exe"
-          export PATH="$BINDIR:$PATH"
-          tar --version
           flutter build windows --release --dart-define-from-file=keys.json || {
             echo "First build failed (likely due to media_kit libmpv download race condition). Retrying..."
             flutter build windows --release --dart-define-from-file=keys.json
