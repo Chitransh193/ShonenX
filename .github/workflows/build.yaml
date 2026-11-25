@@ -630,13 +630,18 @@ jobs:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
     steps:
-      - name: Checkout official ShonenX history for release notes
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
-          repository: roshancodespace/ShonenX
-          ref: ${{ github.event.inputs.source_ref }}
           fetch-depth: 0
-          token: ${{ secrets.SUBMODULE_PAT }}
+
+      - name: Clone official ShonenX for version and release notes
+        env:
+          SOURCE_REF: ${{ github.event.inputs.source_ref }}
+        shell: bash
+        run: |
+          git clone --filter=blob:none https://github.com/roshancodespace/ShonenX.git upstream
+          git -C upstream fetch --tags --force origin
+          git -C upstream checkout "$SOURCE_REF"
 
       # ── Download Active Artifacts ────────────────────────────────────────────────
       - name: Download Android artifacts
@@ -681,7 +686,7 @@ jobs:
           if [ -n "${{ github.event.inputs.release_tag }}" ]; then
             TAG="${{ github.event.inputs.release_tag }}"
           else
-            VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}' | cut -d'+' -f1)
+            VERSION=$(grep '^version:' upstream/pubspec.yaml | awk '{print $2}' | cut -d'+' -f1)
             TAG="v$VERSION"
           fi
           echo "TAG=$TAG" >> $GITHUB_ENV
@@ -695,23 +700,24 @@ jobs:
         run: |
           set -euo pipefail
           git fetch --tags --force
+          git -C upstream fetch --tags --force origin
           # Sort tags by semantic versioning strictly
-          if git rev-parse -q --verify "refs/tags/$CURRENT_TAG" >/dev/null; then
+          if git -C upstream rev-parse -q --verify "refs/tags/$CURRENT_TAG" >/dev/null; then
             echo "Tag $CURRENT_TAG already exists. Finding the previous tag by version..."
-            PREV_TAG=$(git tag --sort=-v:refname | grep -A 1 "^${CURRENT_TAG}$" | tail -n 1)
+            PREV_TAG=$(git -C upstream tag --sort=-v:refname | grep -A 1 "^${CURRENT_TAG}$" | tail -n 1)
             if [ "$PREV_TAG" = "$CURRENT_TAG" ]; then
               PREV_TAG="" # No older tag exists
             fi
           else
             echo "Tag $CURRENT_TAG does not exist yet. Finding the latest tag by version..."
-            PREV_TAG=$(git tag --sort=-v:refname | head -n 1)
+            PREV_TAG=$(git -C upstream tag --sort=-v:refname | head -n 1)
           fi
 
           if [ -n "$PREV_TAG" ]; then
-            COMMITS=$(git log "${PREV_TAG}..HEAD" --pretty=format:"- %s (%h)")
+            COMMITS=$(git -C upstream log "${PREV_TAG}..HEAD" --pretty=format:"- %s (%h)")
             COMPARE_LINK="https://github.com/roshancodespace/ShonenX/compare/${PREV_TAG}...${CURRENT_TAG}"
           else
-            COMMITS=$(git log --pretty=format:"- %s (%h)" -n 30)
+            COMMITS=$(git -C upstream log --pretty=format:"- %s (%h)" -n 30)
             COMPARE_LINK=""
           fi
 
