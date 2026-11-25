@@ -431,7 +431,12 @@ jobs:
         run: |
           # media_kit's native-asset hook needs Windows' bsdtar (7z/LZMA support).
           # Git Bash's GNU tar shadows it and fails with "LZMA codec is unsupported".
-          export PATH="/c/Windows/System32:$PATH"
+          # Copy only tar.exe so bash etc. still resolve to Git Bash.
+          BINDIR="$(cygpath -u "$RUNNER_TEMP")/bsdtar"
+          mkdir -p "$BINDIR"
+          cp /c/Windows/System32/tar.exe "$BINDIR/tar.exe"
+          export PATH="$BINDIR:$PATH"
+          tar --version
           flutter build windows --release --dart-define-from-file=keys.json || {
             echo "First build failed (likely due to media_kit libmpv download race condition). Retrying..."
             flutter build windows --release --dart-define-from-file=keys.json
