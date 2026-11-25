@@ -347,7 +347,7 @@ jobs:
 
   build-windows:
     if: github.event.inputs.build_windows == 'true'
-    runs-on: windows-2022
+    runs-on: windows-latest
     steps:
       - name: Checkout official ShonenX source
         uses: actions/checkout@v4
