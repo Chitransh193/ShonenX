@@ -14,9 +14,10 @@ on:
         type: string
         default: 3.50.1
       release_tag:
-        description: 'Release Tag (Leave empty to auto-extract from pubspec.yaml)'
+        description: 'Release Tag (use "auto" to extract from pubspec.yaml)'
         required: false
         type: string
+        default: auto
       upgrade_dependencies:
         description: 'Run flutter pub upgrade instead of pub get'
         type: boolean
@@ -89,7 +90,7 @@ jobs:
             -o "${OVERRIDE_FILE}"
 
       - name: Override pubspec.yaml version
-        if: github.event.inputs.release_tag != ''
+        if: github.event.inputs.release_tag != '' && github.event.inputs.release_tag != 'auto'
         shell: bash
         run: |
           CLEAN_VER="${{ github.event.inputs.release_tag }}"
@@ -214,7 +215,7 @@ jobs:
             -o "${OVERRIDE_FILE}"
 
       - name: Override pubspec.yaml version
-        if: github.event.inputs.release_tag != ''
+        if: github.event.inputs.release_tag != '' && github.event.inputs.release_tag != 'auto'
         shell: bash
         run: |
           CLEAN_VER="${{ github.event.inputs.release_tag }}"
@@ -368,7 +369,7 @@ jobs:
             -o "${OVERRIDE_FILE}"
 
       - name: Override pubspec.yaml version
-        if: github.event.inputs.release_tag != ''
+        if: github.event.inputs.release_tag != '' && github.event.inputs.release_tag != 'auto'
         shell: bash
         run: |
           CLEAN_VER="${{ github.event.inputs.release_tag }}"
@@ -473,7 +474,7 @@ jobs:
             -o "${OVERRIDE_FILE}"
 
       - name: Override pubspec.yaml version
-        if: github.event.inputs.release_tag != ''
+        if: github.event.inputs.release_tag != '' && github.event.inputs.release_tag != 'auto'
         shell: bash
         run: |
           CLEAN_VER="${{ github.event.inputs.release_tag }}"
@@ -559,7 +560,7 @@ jobs:
             -o "${OVERRIDE_FILE}"
 
       - name: Override pubspec.yaml version
-        if: github.event.inputs.release_tag != ''
+        if: github.event.inputs.release_tag != '' && github.event.inputs.release_tag != 'auto'
         shell: bash
         run: |
           CLEAN_VER="${{ github.event.inputs.release_tag }}"
@@ -683,7 +684,7 @@ jobs:
       - name: Determine Release Tag
         id: determine_tag
         run: |
-          if [ -n "${{ github.event.inputs.release_tag }}" ]; then
+          if [ -n "${{ github.event.inputs.release_tag }}" ] && [ "${{ github.event.inputs.release_tag }}" != "auto" ]; then
             TAG="${{ github.event.inputs.release_tag }}"
           else
             VERSION=$(grep '^version:' upstream/pubspec.yaml | awk '{print $2}' | cut -d'+' -f1)
