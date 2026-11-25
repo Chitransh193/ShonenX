@@ -434,6 +434,13 @@ jobs:
             flutter build windows --release --dart-define-from-file=keys.json
           }
 
+      - name: Dump native asset hook errors on failure
+        if: failure()
+        shell: bash
+        run: |
+          echo "=== native asset hook stderr/stdout ==="
+          find .dart_tool/hooks_runner -type f \( -name 'stderr.txt' -o -name 'stdout.txt' \) -print -exec cat {} \; 2>/dev/null || true
+
       - name: Create Windows Portable Zip
         shell: pwsh
         run: |
