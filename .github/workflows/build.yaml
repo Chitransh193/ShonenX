@@ -689,3 +689,124 @@ jobs:
         with:
           name: ios-ipa
           path: ShonenX-ios-unsigned.ipa
+
+  create-release:
+    needs: [start_building, build-android, build-linux, build-windows, build-macos, build-ios]
+    if: >-
+      always() &&
+      (needs.build-android.result == 'success' ||
+       needs.build-linux.result == 'success' ||
+       needs.build-windows.result == 'success' ||
+       needs.build-macos.result == 'success' ||
+       needs.build-ios.result == 'success')
+    runs-on: ubuntu-latest
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: roshancodespace/ShonenX
+          ref: ${{ github.event.inputs.source_ref }}
+          fetch-depth: 0
+          token: ${{ secrets.SUBMODULE_PAT }}
+
+      - name: Resolve release tag
+        id: tag
+        shell: bash
+        env:
+          REQUESTED_TAG: ${{ github.event.inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          requested="${REQUESTED_TAG:-}"
+          requested="$(echo "$requested" | xargs)"
+          if [ -n "$requested" ]; then
+            tag="${requested#v}"
+            tag="v${tag}"
+          else
+            version="$(awk '/^version:[[:space:]]*/ {print $2; exit}' pubspec.yaml | cut -d+ -f1)"
+            if [ -z "$version" ]; then
+              echo "Could not read version from pubspec.yaml" >&2
+              exit 1
+            fi
+            tag="v${version}"
+          fi
+          echo "Resolved release tag: $tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Generate release notes
+        shell: bash
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git fetch --tags --force
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            PREV=$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)
+          else
+            PREV=$(git describe --tags --abbrev=0 HEAD 2>/dev/null || true)
+          fi
+          if [ -n "$PREV" ]; then
+            COMMITS=$(git log "${PREV}..HEAD" --pretty=format:"- %s (%h)")
+            COMPARE="https://github.com/roshancodespace/ShonenX/compare/${PREV}...${TAG}"
+          else
+            COMMITS=$(git log -n 30 --pretty=format:"- %s (%h)")
+            COMPARE=""
+          fi
+          NOTES=""
+          if [ -n "$GEMINI_API_KEY" ]; then
+            PROMPT="Format these commit messages into concise Markdown release notes for ${TAG}. Keep only user-facing changes. No emojis. Return only the notes. Commits: ${COMMITS}"
+            PAYLOAD=$(jq -n --arg prompt "$PROMPT" '{contents: [{parts: [{"text": $prompt}]}]}')
+            for MODEL in gemini-2.5-flash gemini-2.5-pro gemini-1.5-flash; do
+              RESPONSE=$(curl -s -X POST "https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${GEMINI_API_KEY}" -H "Content-Type: application/json" -d "$PAYLOAD" || true)
+              NOTES=$(echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // empty' 2>/dev/null || true)
+              if [ -n "$NOTES" ]; then
+                break
+              fi
+            done
+          fi
+          if [ -z "$NOTES" ]; then
+            NOTES="## What's Changed"$'\n\n'"${COMMITS}"
+          fi
+          if [ -n "$COMPARE" ]; then
+            NOTES="${NOTES}"$'\n\n---\n**Full Changelog**: '"${COMPARE}"
+          fi
+          printf '%s\n' "$NOTES" > release_notes.md
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: List release artifacts
+        shell: bash
+        run: ls -lh release-artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: ${{ steps.tag.outputs.tag }}
+          body_path: release_notes.md
+          files: release-artifacts/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Notify Telegram — Release Published
+        continue-on-error: true
+        shell: bash
+        run: |
+          URL="https://github.com/${{ github.repository }}/releases/tag/${{ steps.tag.outputs.tag }}"
+          MSG=$(cat <<EOF
+          <b>ShonenX Release: <code>${{ steps.tag.outputs.tag }}</code></b>
+
+          <a href="${URL}">View Release &amp; Downloads</a>
+          EOF
+          )
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -F chat_id="${TELEGRAM_CHAT_ID}" \
+            -F parse_mode="HTML" \
+            -F disable_web_page_preview="true" \
+            --form-string text="$MSG"
