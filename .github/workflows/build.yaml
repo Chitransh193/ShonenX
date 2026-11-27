@@ -159,7 +159,7 @@ jobs:
             "SIMKL_CLIENT_ID": "${{ secrets.SIMKL_CLIENT_ID }}",
             "SIMKL_CLIENT_SECRET": "${{ secrets.SIMKL_CLIENT_SECRET }}",
             "COMMENTUM_API_URL": "${{ secrets.COMMENTUM_API_URL }}",
-            "TRAKT_CLIENT_ID": "${{ secrets.TRAKT_CLIENTID }},
+            "TRAKT_CLIENT_ID": "${{ secrets.TRAKT_CLIENT_ID }}",
             "RELEASE_REPO": "Chitransh193/ShonenX"
           }
           EOF
@@ -259,7 +259,7 @@ jobs:
             "SIMKL_CLIENT_ID": "${{ secrets.SIMKL_CLIENT_ID }}",
             "SIMKL_CLIENT_SECRET": "${{ secrets.SIMKL_CLIENT_SECRET }}",
             "COMMENTUM_API_URL": "${{ secrets.COMMENTUM_API_URL }}",
-            "TRAKT_CLIENT_ID": "${{ secrets.TRAKT_CLIENTID }},
+            "TRAKT_CLIENT_ID": "${{ secrets.TRAKT_CLIENT_ID }}",
             "RELEASE_REPO": "Chitransh193/ShonenX"
           }
           EOF
@@ -419,7 +419,7 @@ jobs:
             "SIMKL_CLIENT_ID": "${{ secrets.SIMKL_CLIENT_ID }}",
             "SIMKL_CLIENT_SECRET": "${{ secrets.SIMKL_CLIENT_SECRET }}",
             "COMMENTUM_API_URL": "${{ secrets.COMMENTUM_API_URL }}",
-            "TRAKT_CLIENT_ID": "${{ secrets.TRAKT_CLIENTID }},
+            "TRAKT_CLIENT_ID": "${{ secrets.TRAKT_CLIENT_ID }}",
             "RELEASE_REPO": "Chitransh193/ShonenX"
           }
           EOF
@@ -567,7 +567,7 @@ jobs:
             "SIMKL_CLIENT_ID": "${{ secrets.SIMKL_CLIENT_ID }}",
             "SIMKL_CLIENT_SECRET": "${{ secrets.SIMKL_CLIENT_SECRET }}",
             "COMMENTUM_API_URL": "${{ secrets.COMMENTUM_API_URL }}",
-            "TRAKT_CLIENT_ID": "${{ secrets.TRAKT_CLIENTID }},
+            "TRAKT_CLIENT_ID": "${{ secrets.TRAKT_CLIENT_ID }}",
             "RELEASE_REPO": "Chitransh193/ShonenX"
           }
           EOF
@@ -666,7 +666,7 @@ jobs:
             "SIMKL_CLIENT_ID": "${{ secrets.SIMKL_CLIENT_ID }}",
             "SIMKL_CLIENT_SECRET": "${{ secrets.SIMKL_CLIENT_SECRET }}",
             "COMMENTUM_API_URL": "${{ secrets.COMMENTUM_API_URL }}",
-            "TRAKT_CLIENT_ID": "${{ secrets.TRAKT_CLIENTID }},
+            "TRAKT_CLIENT_ID": "${{ secrets.TRAKT_CLIENT_ID }}",
             "RELEASE_REPO": "Chitransh193/ShonenX"
           }
           EOF
